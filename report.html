@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Supplier Cross Check</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="styles.css">
+<style>
+  /* Report-specific styles; shared look comes from styles.css */
+  .report .controls { display:flex; flex-wrap:wrap; gap:12px; align-items:flex-end; }
+  .report .controls label { margin-bottom:0; }
+  .report button { display:inline-flex; align-items:center; justify-content:center; font:600 13.5px var(--font); padding:9px 15px; border-radius:10px; border:1px solid var(--line-strong); background:var(--surface); color:var(--ink); cursor:pointer; white-space:nowrap; }
+  .report button:hover { background:var(--surface-2); }
+  .report button.primary { background:var(--brand-grad); color:#fff; border-color:transparent; box-shadow:0 4px 12px rgba(13,138,138,.25); }
+  .report .totals { display:grid; grid-template-columns:repeat(auto-fit, minmax(170px, 1fr)); gap:14px; padding:0; background:none; border:0; box-shadow:none; }
+  .report .totals > div { background:var(--surface); border:1px solid var(--line); border-radius:var(--radius); box-shadow:var(--shadow); padding:16px 18px; }
+  .report .totals > div:nth-child(3) { background:var(--brand-grad); color:#fff; border-color:transparent; }
+  .report .totals > div:nth-child(3) span { color:rgba(255,255,255,.85); }
+  .report .totals div b { display:block; font-size:24px; font-weight:700; letter-spacing:-.02em; font-variant-numeric:tabular-nums; }
+  .report .totals div span { color:var(--muted); font-size:12.5px; }
+  .report .group-head { display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; }
+  .report h2 { font-size:16px; margin:0; font-weight:650; }
+  .report td { white-space:nowrap; }
+  .report table { font-size:13px; }
+  .report th { padding:9px 8px; font-size:11px; }
+  .report td { padding:9px 8px; }
+  /* Client (5) and Item (7) may wrap so Unit and Total stay in view */
+  .report tbody td:nth-child(4), .report tbody td:nth-child(6) { white-space:normal; min-width:96px; }
+  .report tfoot td { font-weight:700; border-top:2px solid var(--line); border-bottom:0; background:var(--surface-2); }
+  .report .warn { background:var(--warn-bg); color:var(--warn); border:1px solid #f1d29a; border-left:4px solid #e7a33e; border-radius:10px; padding:11px 14px; margin-bottom:14px; font-weight:500; }
+  .report .note-line { font-size:13px; color:var(--muted); margin:-4px 0 12px; }
+  .report .ac { color:var(--muted); font-size:12px; }
+  .report .err { color:var(--danger); }
+  .report .empty { text-align:left; padding:8px 0; }
+  .report .src { font-size:13px; color:var(--muted); margin:-6px 0 14px; }
+  @media print {
+    .report .totals > div { box-shadow:none; }
+    .report .totals > div:nth-child(3) { background:#fff; color:var(--ink); border:1px solid var(--line); }
+    .report .totals > div:nth-child(3) span { color:var(--muted); }
+    .report .card { border:none; padding:0; }
+    .content { padding:0; }
+  }
+</style>
+</head>
+<body class="report">
+<div class="shell">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="logo" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><path d="M2 16l20-8-8 14-2-6-10 0z" fill="currentColor"/></svg>
+      </div>
+      <div>
+        <div class="brand-name" id="brandNameR">Quote Calculator</div>
+        <div class="brand-sub">Travel quotes</div>
+      </div>
+    </div>
+    <nav class="nav">
+      <a class="tab" href="index.html#quote">
+        <svg viewBox="0 0 24 24"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M12 12v6M9 15h6"/></svg>
+        <span>New quote</span></a>
+      <a class="tab" href="index.html#saved">
+        <svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+        <span>Saved quotes</span></a>
+      <a class="tab" href="index.html#prices">
+        <svg viewBox="0 0 24 24"><path d="M3 12V4a1 1 0 0 1 1-1h8l9 9-9 9z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg>
+        <span>Price list</span></a>
+      <a class="tab active" href="report.html">
+        <svg viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>
+        <span>Supplier report</span></a>
+      <a class="tab" href="index.html#settings">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+        <span>Settings</span></a>
+    </nav>
+    <div class="sidebar-foot">Saved online.<br><span id="sideUser"></span><br><button type="button" id="sideSignOut" class="link-btn">Log out</button></div>
+  </aside>
+<main class="content">
+  <header class="page-head">
+    <div><h1>Supplier cross check</h1>
+    <p class="page-sub">Every ticket, transport and hotel line with a travel date in the range, grouped by supplier, to check against supplier invoices. Prices are the ones saved on each quote.</p></div>
+  </header>
+
+  <div class="card controls">
+    <label>Month <input type="month" id="month"></label>
+    <label>Travel from <input type="date" id="from" required></label>
+    <label>Travel to <input type="date" id="to" required></label>
+    <label>Supplier <select id="supplier"><option value="">All suppliers</option></select></label>
+    <button class="primary" id="run">Show report</button>
+    <button id="csvAll">Download CSV</button>
+    <button id="print">Print / PDF</button>
+    <label class="no-print">Or load a backup file <input type="file" id="file" accept=".json,application/json"></label>
+  </div>
+  <p class="src no-print" id="source"></p>
+  <div id="msg"></div>
+  <div id="out"></div>
+</main>
+</div>
+<script src="vendor/supabase.min.js"></script>
+<script src="config.js"></script>
+<script src="cloud.js"></script>
+<script src="supplier-report.js"></script>
+<script>
+(async function () {
+  const R = window.SupplierReport;
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+  let quotes = [], sourceLabel = '', report = null, currency = '', settingsCurrency = '';
+
+  // Saved quotes come from the online database (log in first).
+  async function loadFromCloud() {
+    try {
+      const [list, st] = await Promise.all([Cloud.loadQuotes(), Cloud.loadSettings()]);
+      quotes = list;
+      settingsCurrency = (st && st.currency) || '';
+      if (st && st.businessName) $('brandNameR').textContent = st.businessName;
+      sourceLabel = `Reading ${quotes.length} saved quote(s) from the online database.`;
+    } catch (err) {
+      quotes = [];
+      sourceLabel = '';
+      $('msg').innerHTML = `<p class="err">Could not load saved quotes: ${esc(Cloud.explain(err))} Refresh the page to try again.</p>`;
+    }
+  }
+
+  // Table cells show plain amounts; the currency is in the column header to save width.
+  function amt(c) { return Number(R.fromCents(c)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+  function money(c) { return (currency ? currency + ' ' : '') + Number(R.fromCents(c)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+
+  function download(name, text) {
+    const url = URL.createObjectURL(new Blob([text], { type: 'text/csv;charset=utf-8' }));
+    const a = Object.assign(document.createElement('a'), { href: url, download: name });
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  function slug(s) { return String(s).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'supplier'; }
+
+  function run() {
+    $('msg').innerHTML = ''; $('out').innerHTML = '';
+    try {
+      report = R.buildReport(quotes, { from: $('from').value, to: $('to').value });
+    } catch (e) { report = null; $('msg').innerHTML = `<p class="err">${esc(e.message)}</p>`; return; }
+    currency = (quotes.find((q) => q.currency) || {}).currency || settingsCurrency || 'SGD';
+
+    // Refresh supplier filter with suppliers found in this range.
+    const sel = $('supplier'), keep = sel.value;
+    sel.innerHTML = '<option value="">All suppliers</option>' + report.groups.map((g) => `<option>${esc(g.supplier)}</option>`).join('');
+    sel.value = report.groups.some((g) => g.supplier === keep) ? keep : '';
+    const groups = sel.value ? report.groups.filter((g) => g.supplier === sel.value) : report.groups;
+
+    let html = `<div class="card totals">
+      <div><b>${report.quoteCount}</b><span>quotes</span></div>
+      <div><b>${report.lines.length}</b><span>lines</span></div>
+      <div><b>${money(report.supplierTotalCents)}</b><span>owed to suppliers</span></div>
+      <div><b>${money(report.serviceChargeCents)}</b><span>service charges (yours, not on supplier invoices)</span></div>
+    </div>`;
+    if (report.missingSupplier) html += `<div class="warn">${report.missingSupplier} line(s) have no supplier set. Add a supplier to those price list items so they group correctly.</div>`;
+    const hotelLines = report.lines.filter((l) => l.tripStartDate).length;
+    if (hotelLines) html += `<div class="note-line">Hotels have no date of their own, so they are listed under the first day of the trip (marked †).</div>`;
+    if (report.missingTravelDate) html += `<div class="warn">${report.missingTravelDate} line(s) have no travel date, so the quote date was used for them (marked *). Check those against the invoice by hand.</div>`;
+    if (!groups.length) html += `<p class="empty">No ticket, transport or hotel lines with a travel date from ${esc(report.from)} to ${esc(report.to)}.</p>`;
+
+    for (const g of groups) {
+      const i = report.groups.indexOf(g);
+      html += `<section class="card"><div class="group-head"><h2>${esc(g.supplier)}</h2>
+        <button class="no-print" data-csv="${i}">CSV for this supplier</button></div><div class="scroll"><table>
+        <thead><tr><th>Type</th><th>Travel date</th><th>Quote</th><th>Client</th><th>Code</th><th>Item</th><th class="num">Qty</th><th class="num">Unit (${esc(currency)})</th><th class="num">Total (${esc(currency)})</th></tr></thead><tbody>` +
+        g.lines.map((l) => `<tr><td>${l.type}</td><td>${l.dateIsFallback ? esc(l.reportDate) + ' *' : esc(l.travelDate) + (l.tripStartDate ? ' †' : '')}</td><td>${esc(l.quoteNumber)}<br><span class="ac">saved ${esc(l.quoteDate)}</span></td><td>${esc(l.clientName)}</td><td>${esc(l.code)}</td><td>${esc(l.item)}</td><td class="num">${l.qty}${l.adults != null && l.children ? `<br><span class="ac">${l.adults}A + ${l.children}C</span>` : ''}</td><td class="num">${l.singlePrice ? amt(l.unitCents) : `A ${amt(l.adultCents)}<br>C ${amt(l.childCents)}`}</td><td class="num">${amt(l.totalCents)}</td></tr>`).join('') +
+        `</tbody><tfoot><tr><td colspan="6">Total for ${esc(g.supplier)}</td><td class="num">${g.qty}</td><td></td><td class="num">${amt(g.totalCents)}</td></tr></tfoot></table></div></section>`;
+    }
+    $('out').innerHTML = html;
+  }
+
+  function setMonth(v) {
+    const [y, m] = v.split('-').map(Number);
+    const r = R.monthRange(y, m); $('from').value = r.from; $('to').value = r.to;
+  }
+
+  // Default to the current month.
+  const now = new Date();
+  $('month').value = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  setMonth($('month').value);
+  $('month').addEventListener('change', (e) => { if (e.target.value) { setMonth(e.target.value); run(); } });
+  $('run').addEventListener('click', run);
+  $('supplier').addEventListener('change', run);
+  $('print').addEventListener('click', () => window.print());
+  $('csvAll').addEventListener('click', () => {
+    if (!report) run(); if (!report) return;
+    const s = $('supplier').value;
+    const lines = s ? report.lines.filter((l) => l.supplier === s) : report.lines;
+    download(`supplier-report_${s ? slug(s) + '_' : ''}${report.from}_to_${report.to}.csv`, R.toCsv(lines));
+  });
+  $('out').addEventListener('click', (e) => {
+    const i = e.target.getAttribute('data-csv'); if (i == null) return;
+    const g = report.groups[Number(i)];
+    download(`supplier-report_${slug(g.supplier)}_${report.from}_to_${report.to}.csv`, R.toCsv(g.lines));
+  });
+  $('file').addEventListener('change', async (e) => {
+    const f = e.target.files[0]; if (!f) return;
+    try {
+      const data = JSON.parse(await f.text());
+      const list = Array.isArray(data) ? data : data.quotes;
+      if (!Array.isArray(list)) throw new Error('No quotes found in that file');
+      if (data.settings && data.settings.currency) settingsCurrency = data.settings.currency;
+      quotes = list; sourceLabel = `Reading ${quotes.length} quote(s) from ${f.name}. Reload the page to go back to the online saved quotes.`;
+      $('source').textContent = sourceLabel; run();
+    } catch (err) { $('msg').innerHTML = `<p class="err">Could not read that file: ${esc(err.message)}</p>`; }
+  });
+
+  await Cloud.requireLogin();
+  Cloud.showLoading('Loading saved quotes…');
+  $('sideUser').textContent = 'Agent ' + Cloud.agent;
+  $('sideSignOut').addEventListener('click', () => Cloud.signOut());
+  await loadFromCloud();
+  Cloud.hideGate();
+  $('source').textContent = sourceLabel;
+  if (!$('msg').innerHTML) run();
+})();
+</script>
+</body>
+</html>

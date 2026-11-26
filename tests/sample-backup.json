@@ -1,0 +1,195 @@
+{
+ "quotes": [
+  {
+   "id": "q1",
+   "quoteNumber": "Q-0001",
+   "date": "2026-11-03",
+   "clientName": "Smith family",
+   "serviceCharge": 25,
+   "currency": "SGD",
+   "tickets": [
+    {
+     "code": "BRJ1",
+     "name": "Burj top floor adult",
+     "supplier": "Emaar",
+     "pax": 4,
+     "unitPrice": 149.5
+    },
+    {
+     "code": "DSF",
+     "name": "Desert safari",
+     "supplier": "Arabian Adventures",
+     "pax": 4,
+     "unitPrice": 0.1
+    }
+   ],
+   "transport": [
+    {
+     "description": "Airport to hotel, 7 seater",
+     "supplier": "City Cabs",
+     "date": "2026-11-10",
+     "qty": 1,
+     "unitPrice": 180
+    }
+   ],
+   "createdAt": "2026-11-03T09:00:00Z"
+  },
+  {
+   "id": "q2",
+   "quoteNumber": "Q-0002",
+   "date": "2026-11-30",
+   "clientName": "=Acme, \"Corp\"",
+   "serviceCharge": 25,
+   "currency": "SGD",
+   "tickets": [
+    {
+     "code": "BRJ1",
+     "name": "Burj top floor adult",
+     "supplier": "Emaar",
+     "pax": 2,
+     "unitPrice": 149.5
+    }
+   ],
+   "transport": [
+    {
+     "description": "Full day city tour",
+     "supplier": "City Cabs",
+     "date": "",
+     "qty": 2,
+     "unitPrice": 0.2
+    },
+    {
+     "description": "Hotel drop",
+     "supplier": "",
+     "date": "",
+     "qty": 1,
+     "unitPrice": 50
+    }
+   ],
+   "createdAt": "2026-11-30T09:00:00Z"
+  },
+  {
+   "id": "q3",
+   "quoteNumber": "Q-0003",
+   "date": "2026-12-01",
+   "clientName": "Out of range",
+   "serviceCharge": 25,
+   "currency": "SGD",
+   "tickets": [
+    {
+     "code": "BRJ1",
+     "name": "Burj",
+     "supplier": "Emaar",
+     "pax": 9,
+     "unitPrice": 100
+    }
+   ],
+   "transport": []
+  },
+  {
+   "id": "q4",
+   "quoteNumber": "Q-0004",
+   "date": "2026-10-20",
+   "clientName": "Booked early",
+   "serviceCharge": 30,
+   "currency": "SGD",
+   "tickets": [
+    {
+     "code": "CT01",
+     "name": "Zoo adult",
+     "supplier": "Zoo",
+     "pax": 3,
+     "unitPrice": 48,
+     "travelDate": "2026-11-15"
+    }
+   ],
+   "transport": [
+    {
+     "description": "Coach",
+     "supplier": "City Cabs",
+     "date": "2026-11-15",
+     "qty": 1,
+     "unitPrice": 120
+    },
+    {
+     "description": "Return coach",
+     "supplier": "City Cabs",
+     "date": "2026-12-02",
+     "qty": 1,
+     "unitPrice": 120
+    }
+   ]
+  },
+  {
+   "id": "q5",
+   "quoteNumber": "Q-20261126-001",
+   "date": "2026-11-26",
+   "clientName": "Tan family",
+   "serviceCharge": 20,
+   "currency": "SGD",
+   "adults": 2,
+   "children": 1,
+   "days": [
+    {
+     "date": "2026-11-20",
+     "lines": []
+    },
+    {
+     "date": "2026-11-21",
+     "lines": []
+    }
+   ],
+   "tickets": [
+    {
+     "code": "CT02",
+     "name": "Night safari",
+     "supplier": "Zoo",
+     "travelDate": "2026-11-21",
+     "adults": 2,
+     "children": 1,
+     "adultPrice": 50,
+     "childPrice": 33.33,
+     "pax": 3,
+     "unitPrice": 44.44,
+     "total": 133.33
+    },
+    {
+     "code": "CT03",
+     "name": "River cruise",
+     "supplier": "Zoo",
+     "travelDate": "2026-11-20",
+     "adults": 2,
+     "children": 0,
+     "adultPrice": 40,
+     "childPrice": 25,
+     "pax": 2,
+     "unitPrice": 40,
+     "total": 80
+    }
+   ],
+   "transport": [
+    {
+     "description": "Airport pickup",
+     "supplier": "City Cabs",
+     "date": "2026-11-20",
+     "travelDate": "2026-11-20",
+     "qty": 1,
+     "unitPrice": 65.5,
+     "total": 65.5
+    }
+   ],
+   "hotels": [
+    {
+     "description": "Hotel 3 nights",
+     "supplier": "Booked by Binoy",
+     "amount": 540
+    },
+    {
+     "description": "Late checkout",
+     "supplier": "",
+     "amount": 30
+    }
+   ]
+  }
+ ]
+}
