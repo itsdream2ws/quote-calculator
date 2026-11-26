@@ -19,16 +19,29 @@ This makes sure only the agents you add can ever log in.
 ### 2. Add yourself as the first agent
 Follow "Add an agent" below to create your own login, for example `AG01`.
 
+### 3. Turn on the website (GitHub Pages)
+1. Open [github.com/itsdream2ws/quote-calculator](https://github.com/itsdream2ws/quote-calculator).
+2. Click **Settings** (the tab at the top of the repository, with the gear icon).
+3. In the left menu, under "Code and automation", click **Pages**.
+4. Under "Build and deployment", set **Source** to **Deploy from a branch**.
+5. Under **Branch**, pick **main**, leave the folder as **/ (root)**, and click **Save**.
+6. Wait a minute or two, then refresh the page. The address of the site shows at the top: https://itsdream2ws.github.io/quote-calculator/
+
+Every change merged into `main` updates the website by itself within a few minutes.
+
 ---
 
 ## Part 2: Opening the app
 
-1. Download the two files **Quote Calculator.html** and **Supplier Report.html** (from the project, or make them yourself: see "For developers" at the bottom).
-2. Keep them in the same folder, so the menu links between them work.
-3. Double-click **Quote Calculator.html**. It opens in your web browser (Chrome, Edge or Firefox).
-4. Type your agent code and password, then click **Log in**. The browser remembers you until you click **Log out**.
+The app is a website: **https://itsdream2ws.github.io/quote-calculator/**
+
+1. Open that address in Chrome, Edge, Safari or Firefox, on a computer or phone. Bookmark it.
+2. Type your agent code and password, then click **Log in**. The browser remembers you until you click **Log out**.
+3. The Supplier report is in the menu on the left.
 
 You need an internet connection, because the quotes are stored online.
+
+(Without the website, you can also open the two single files **Quote Calculator.html** and **Supplier Report.html**. Keep them in the same folder so the menu links work.)
 
 ### Bringing over quotes from the old version
 The first time you log in on the computer where you used the old offline version, a yellow box offers to copy the old quotes and price list online. Click **Copy them now**. Nothing is deleted from that computer. You can also do this later from **Settings → Copy data from the old offline version**, or restore a backup file from **Settings → Restore from backup**.
@@ -87,7 +100,8 @@ Plain HTML, CSS and JavaScript with no build step and no server.
 | `build.py` | Makes the two single-file pages |
 | `vendor/` | jsPDF 2.5.1, html2canvas 1.4.1, supabase-js 2.119.0 (all MIT, licences alongside) |
 
-- Run from the folder: open `index.html` directly, or serve the folder with any static server.
+- Hosting: GitHub Pages serves the repository root from `main` (`.nojekyll` turns off Jekyll processing). Login is email + password only, with no email links or redirects, so Supabase's Site URL setting doesn't matter.
+- Run locally: open `index.html` directly, or serve the folder with any static server.
 - Single files: `python3 build.py . dist` writes `dist/Quote Calculator.html` and `dist/Supplier Report.html` with everything inlined.
 - Tests: `node tests/test-report.js`.
 - The publishable key in `config.js` is meant to be public. Security comes from row level security: every table only allows signed-in, non-anonymous users, and logged-out visitors have no table access at all. Public sign-ups must stay switched off in Supabase.
