@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Quote Calculator</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="shell">
+  <!-- ============ SIDEBAR ============ -->
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="logo" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><path d="M2 16l20-8-8 14-2-6-10 0z" fill="currentColor"/></svg>
+      </div>
+      <div>
+        <div class="brand-name" id="brandName">Quote Calculator</div>
+        <div class="brand-sub">Travel quotes</div>
+      </div>
+    </div>
+    <nav class="nav">
+      <button class="tab active" data-view="quote">
+        <svg viewBox="0 0 24 24"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M12 12v6M9 15h6"/></svg>
+        <span>New quote</span></button>
+      <button class="tab" data-view="saved">
+        <svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+        <span>Saved quotes</span></button>
+      <button class="tab" data-view="prices">
+        <svg viewBox="0 0 24 24"><path d="M3 12V4a1 1 0 0 1 1-1h8l9 9-9 9z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg>
+        <span>Price list</span><span id="priceAlertBadge" class="badge hidden"></span></button>
+      <a class="tab" href="report.html">
+        <svg viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>
+        <span>Supplier report</span></a>
+      <button class="tab" data-view="settings">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+        <span>Settings</span></button>
+    </nav>
+    <div class="sidebar-foot">Saved online.<br><span id="sideUser"></span><br><button type="button" id="sideSignOut" class="link-btn">Log out</button></div>
+  </aside>
+
+  <main class="content">
+  <!-- ============ NEW QUOTE ============ -->
+  <section id="view-quote" class="view">
+    <header class="page-head">
+      <div>
+        <h1 id="quoteHeading">New quote</h1>
+        <p class="page-sub">Plan it day by day: type ticket codes like a till, add transport, then the hotel.</p>
+      </div>
+      <button id="clearBtn" class="btn">+ Start a new quote</button>
+    </header>
+
+    <div class="grid2">
+      <div class="stack">
+        <div class="card">
+          <div class="card-title"><span class="step">1</span>Client</div>
+          <div class="row">
+            <label class="grow">Client name *<input id="qClient" type="text" autocomplete="off" placeholder="e.g. Tan family"></label>
+            <label class="paxbox">Adults *<input id="qAdults" type="number" min="0" step="1"></label>
+            <label class="paxbox">Children<input id="qChildren" type="number" min="0" step="1"></label>
+            <label>Quote date *<input id="qDate" type="date"></label>
+          </div>
+          <label>Notes <span class="hint">optional, printed on the quote</span><textarea id="qNotes" rows="2" placeholder="e.g. Quote valid for 7 days"></textarea></label>
+        </div>
+
+        <div class="card">
+          <div class="card-title"><span class="step">2</span>Day by day <span class="hint" style="margin-left:auto">attractions and transport, in order</span></div>
+          <datalist id="ticketList"></datalist>
+          <div id="days"></div>
+          <button id="addDayBtn" class="btn add-day">+ Add day</button>
+        </div>
+
+        <div class="card">
+          <div class="card-title"><span class="step">3</span>Hotel</div>
+          <div class="scroll">
+          <table class="lines hotel-table">
+            <thead><tr><th>Hotel</th><th>Booked by / supplier</th><th class="num">Amount</th><th></th></tr></thead>
+            <tbody id="hotelRows"></tbody>
+          </table>
+          </div>
+          <button id="addHotelBtn" class="btn small-add">+ Add hotel</button>
+        </div>
+      </div>
+
+      <aside class="summary sticky">
+        <div class="total-hero">
+          <div class="total-label">Quote total</div>
+          <div class="total-value" id="tGrand">0.00</div>
+          <div class="total-pax" id="tPax"></div>
+        </div>
+        <div class="summary-body">
+          <dl class="totals">
+            <dt>Attractions</dt><dd id="tTickets">0.00</dd>
+            <dt>Transport</dt><dd id="tTransport">0.00</dd>
+            <dt>Hotel</dt><dd id="tHotel">0.00</dd>
+            <dt>Profit <span class="hint" id="profitHint"></span></dt><dd><input id="qService" type="number" min="0" step="0.01" class="inline-num" aria-label="Profit"><span id="tService" class="hidden"></span></dd>
+          </dl>
+          <div id="validation" class="errors hidden"></div>
+          <div id="warnings" class="warnings hidden"></div>
+          <label class="switch"><input type="checkbox" id="qItemised" checked><span class="slider"></span> Itemised <span class="hint">show line totals</span></label>
+          <div class="btncol">
+            <button id="saveBtn" class="btn primary big">Save quote</button>
+            <div class="btnpair">
+              <button id="pdfBtn" class="btn">Save + PDF</button>
+              <button id="pngBtn" class="btn">Save + PNG</button>
+            </div>
+            <button id="previewBtn" class="btn ghost">Preview the quote</button>
+          </div>
+          <div id="saveMsg" class="msg"></div>
+        </div>
+      </aside>
+    </div>
+  </section>
+
+  <!-- ============ SAVED QUOTES ============ -->
+  <section id="view-saved" class="view hidden">
+    <header class="page-head">
+      <div><h1>Saved quotes</h1><p class="page-sub">Every quote you save, by date. Re-download, edit or copy any of them.</p></div>
+    </header>
+    <div class="card">
+      <div class="row filters">
+        <label class="grow">Search<input id="sSearch" type="search" placeholder="Client, quote number or agent"></label>
+        <label>From<input id="sFrom" type="date"></label>
+        <label>To<input id="sTo" type="date"></label>
+      </div>
+      <div class="scroll">
+      <table class="list">
+        <thead><tr><th>Date</th><th>Quote no.</th><th>Client</th><th>Pax</th><th>Agent</th><th class="num">Total</th><th></th></tr></thead>
+        <tbody id="savedRows"></tbody>
+      </table>
+      </div>
+      <div id="savedEmpty" class="empty">No saved quotes yet.</div>
+    </div>
+  </section>
+
+  <!-- ============ PRICE LIST ============ -->
+  <section id="view-prices" class="view hidden">
+    <header class="page-head">
+      <div><h1>Price list</h1><p class="page-sub">Ticket prices need a valid-until date and a monthly confirm. Expired prices can't go on a quote until updated.</p></div>
+    </header>
+    <div class="card">
+      <div class="card-title">Tickets</div>
+      <div id="priceAlerts"></div>
+      <form id="ticketForm" class="row wrap form-panel" novalidate>
+        <input type="hidden" id="tfEditing">
+        <label>Code *<input id="tfCode" maxlength="20" placeholder="CT01"></label>
+        <label class="grow">Name *<input id="tfName" placeholder="City tour (half day)"></label>
+        <label>Supplier *<input id="tfSupplier" list="supplierList"></label>
+        <label>Adult price *<input id="tfPrice" type="number" min="0" step="0.01"></label>
+        <label>Child price <span class="hint">blank = adult</span><input id="tfChild" type="number" min="0" step="0.01"></label>
+        <label>Valid until *<input id="tfValid" type="date"></label>
+        <div class="formbtns"><button class="btn primary" type="submit" id="tfSubmit">Add ticket</button><button class="btn ghost hidden" type="button" id="tfCancel">Cancel</button></div>
+      </form>
+      <div id="tfMsg" class="msg"></div>
+      <datalist id="supplierList"></datalist>
+      <div class="row toolbar">
+        <label class="grow">Filter<input id="tfFilter" type="search" placeholder="Code, name or supplier"></label>
+        <button id="confirmAllBtn" class="btn">✓ Confirm all valid prices this month</button>
+      </div>
+      <div class="scroll">
+      <table class="list">
+        <thead><tr><th>Code</th><th>Name</th><th>Supplier</th><th class="num">Adult</th><th class="num">Child</th><th>Valid until</th><th>Last confirmed</th><th>Status</th><th></th></tr></thead>
+        <tbody id="ticketPriceRows"></tbody>
+      </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Transport</div>
+      <p class="muted small">Standard transport prices. On a quote you can still change the price or type a custom line.</p>
+      <form id="transportForm" class="row wrap form-panel" novalidate>
+        <input type="hidden" id="trEditing">
+        <label class="grow">Name *<input id="trName" placeholder="e.g. Airport transfer, van up to 8 pax"></label>
+        <label>Supplier *<input id="trSupplier" list="supplierList"></label>
+        <label>Price *<input id="trPrice" type="number" min="0" step="0.01"></label>
+        <div class="formbtns"><button class="btn primary" type="submit" id="trSubmit">Add transport</button><button class="btn ghost hidden" type="button" id="trCancel">Cancel</button></div>
+      </form>
+      <div id="trMsg" class="msg"></div>
+      <div class="scroll">
+      <table class="list">
+        <thead><tr><th>Name</th><th>Supplier</th><th class="num">Price</th><th></th></tr></thead>
+        <tbody id="transportPriceRows"></tbody>
+      </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ SETTINGS ============ -->
+  <section id="view-settings" class="view hidden">
+    <header class="page-head">
+      <div><h1>Settings</h1><p class="page-sub">Your details on each quote, currency, service charge, backups and your password.</p></div>
+    </header>
+    <div class="grid-settings">
+      <div class="card">
+        <div class="card-title">Quote details</div>
+        <form id="settingsForm">
+          <label>Business name <span class="hint">top of each quote</span><input id="stBusiness"></label>
+          <label>Business details <span class="hint">address, phone, email</span><textarea id="stDetails" rows="3"></textarea></label>
+          <div class="row">
+            <label>Currency<input id="stCurrency" maxlength="6"></label>
+            <label>Default profit <span class="hint">flat fee per quote</span><input id="stService" type="number" min="0" step="0.01"></label>
+          </div>
+          <label>Profit on the client's quote
+            <select id="stProfit">
+              <option value="service">Show it as "Service charge"</option>
+              <option value="hide">Hide it (included in the total)</option>
+              <option value="profit">Show it as "PROFIT"</option>
+            </select></label>
+          <label>Footer text on quotes<textarea id="stFooter" rows="2"></textarea></label>
+          <button class="btn primary" type="submit">Save settings</button>
+          <span id="settingsMsg" class="msg"></span>
+        </form>
+      </div>
+      <div class="card">
+        <div class="card-title">Backup</div>
+        <p class="muted small">Everything is saved online, so you can log in from any computer. A backup file is an extra copy you keep yourself. Restoring one adds it to the online data and never deletes anything.</p>
+        <div class="btncol">
+          <button id="backupBtn" class="btn">Download backup (JSON)</button>
+          <label class="btn filebtn">Restore from backup<input id="restoreInput" type="file" accept="application/json,.json"></label>
+          <button id="importLocalBtn" class="btn">Copy data from the old offline version</button>
+          <button id="sampleBtn" class="btn ghost">Load sample price list</button>
+        </div>
+        <div id="backupMsg" class="msg"></div>
+      </div>
+      <div class="card">
+        <div class="card-title">Your account</div>
+        <p class="muted small">Logged in as agent <b id="accountEmail"></b>.</p>
+        <form id="passwordForm" novalidate>
+          <label>New password<input id="pwNew" type="password" autocomplete="new-password" minlength="8"></label>
+          <label>New password again<input id="pwAgain" type="password" autocomplete="new-password" minlength="8"></label>
+          <button class="btn primary" type="submit">Change password</button>
+          <span id="pwMsg" class="msg"></span>
+        </form>
+        <div class="btncol" style="margin-top:14px"><button id="signOutBtn" class="btn ghost" type="button">Log out</button></div>
+      </div>
+    </div>
+  </section>
+  </main>
+</div>
+
+<!-- Preview modal -->
+<div id="previewModal" class="modal hidden">
+  <div class="modal-inner">
+    <div class="modal-bar">
+      <label class="switch"><input type="checkbox" id="pvItemised"><span class="slider"></span> Itemised</label>
+      <button id="pvPdf" class="btn primary">Download PDF</button>
+      <button id="pvPng" class="btn">Download PNG</button>
+      <button id="pvClose" class="btn ghost">Close</button>
+    </div>
+    <div class="paper-wrap"><div id="paper" class="paper"></div></div>
+  </div>
+</div>
+
+<script src="vendor/html2canvas.min.js"></script>
+<script src="vendor/jspdf.umd.min.js"></script>
+<script src="vendor/supabase.min.js"></script>
+<script src="config.js"></script>
+<script src="cloud.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
