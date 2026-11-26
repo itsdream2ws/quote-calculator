@@ -33,6 +33,7 @@
     const date = String(q.date || q.createdAt || '').slice(0, 10);
     const lineDates = [...(q.tickets || []), ...(q.transport || [])]
       .map((t) => t.travelDate || t.date || '').filter(isIsoDate)
+      .concat((q.meals || []).concat(q.guides || []).map((t) => t.travelDate || '').filter(isIsoDate))
       .concat((q.days || []).map((d) => d && d.date).filter(isIsoDate)).sort();
     const tripStart = lineDates[0] || q.travelDate || '';
     return {
@@ -62,6 +63,38 @@
         unitPrice: Number(t.unitPrice ?? t.price) || 0,
         total: optNum(t.total),
         travelDate: t.travelDate || t.date || q.travelDate || '',
+      })),
+      meals: (q.meals || []).map((t) => ({
+        code: '',
+        name: [t.meal, t.description].filter(Boolean).join(' — ') || 'Meal',
+        supplier: (t.supplier || '').trim() || UNKNOWN_SUPPLIER,
+        qty: Number(t.pax ?? (Number(t.adults) || 0) + (Number(t.children) || 0)) || 0,
+        unitPrice: Number(t.adultPrice) || 0,
+        adults: optNum(t.adults), children: optNum(t.children),
+        adultPrice: optNum(t.adultPrice), childPrice: optNum(t.childPrice),
+        total: optNum(t.total),
+        travelDate: t.travelDate || '',
+      })),
+      guides: (q.guides || []).map((t) => ({
+        code: t.code || '',
+        name: t.description ? 'Guide — ' + t.description : 'Guide',
+        supplier: (t.supplier || '').trim() || UNKNOWN_SUPPLIER,
+        qty: Number(t.qty ?? 1) || 0,
+        unitPrice: Number(t.unitPrice) || 0,
+        total: optNum(t.total),
+        travelDate: t.travelDate || '',
+      })),
+      // Additional charges on group quotes count only when a supplier is filled in (otherwise they are
+      // the company's own charges). Like hotels they are dated by the first day of the trip.
+      additional: (q.quoteType === 'group' ? (q.additionalCharges || []) : []).filter((a) => (a.supplier || '').trim()).map((a) => ({
+        code: '',
+        name: a.description || '',
+        supplier: a.supplier.trim(),
+        qty: 1,
+        unitPrice: Number(a.amount) || 0,
+        total: optNum(a.amount),
+        travelDate: tripStart,
+        tripStartDate: !!tripStart,
       })),
       // Hotels have no date of their own, so they are dated by the first day of the trip.
       hotels: (q.hotels || []).map((h) => ({
@@ -119,7 +152,10 @@
       };
       q.tickets.forEach((t) => push('Ticket', t));
       q.transport.forEach((t) => push('Transport', t));
+      q.meals.forEach((t) => push('Meal', t));
+      q.guides.forEach((t) => push('Guide', t));
       q.hotels.forEach((h) => push('Hotel', h));
+      q.additional.forEach((a) => push('Additional', a));
     }
 
     lines.sort((a, b) =>
@@ -160,7 +196,7 @@
 
   function lineNote(l) {
     if (l.dateIsFallback) return 'No travel date on quote; quote date used';
-    if (l.tripStartDate) return 'Hotel has no date; first day of trip used';
+    if (l.tripStartDate) return (l.type === 'Hotel' ? 'Hotel' : 'Charge') + ' has no date; first day of trip used';
     return '';
   }
 

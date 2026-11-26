@@ -47,6 +47,16 @@ create table public.transport_items (
   code       text unique check (code is null or (code <> '' and code = upper(code)))
 );
 
+-- Price list: guides, each for a place or attraction (e.g. a guide for Universal Studios)
+create table public.guide_items (
+  id         text primary key,
+  code       text not null unique check (code <> '' and code = upper(code)),
+  name       text not null,
+  supplier   text not null,
+  price      numeric(12,2) not null check (price >= 0),
+  updated_at timestamptz not null default now()
+);
+
 -- Saved quotes. `data` holds the whole quote exactly as the app builds it
 -- (days, hotels, flat tickets/transport copies, totals; see DATA_FORMAT.md).
 -- The columns beside it are copies for sorting, searching and uniqueness.
@@ -73,32 +83,35 @@ create table public.settings (
 
 create trigger tickets_touch before update on public.tickets for each row execute function public.touch_updated_at();
 create trigger transport_items_touch before update on public.transport_items for each row execute function public.touch_updated_at();
+create trigger guide_items_touch before update on public.guide_items for each row execute function public.touch_updated_at();
 create trigger quotes_touch before update on public.quotes for each row execute function public.touch_updated_at();
 create trigger settings_touch before update on public.settings for each row execute function public.touch_updated_at();
 
 -- Row level security: nothing can be read or written without signing in.
 alter table public.tickets enable row level security;
 alter table public.transport_items enable row level security;
+alter table public.guide_items enable row level security;
 alter table public.quotes enable row level security;
 alter table public.settings enable row level security;
 
 create policy "staff full access" on public.tickets for all to authenticated using ((select public.is_staff())) with check ((select public.is_staff()));
 create policy "staff full access" on public.transport_items for all to authenticated using ((select public.is_staff())) with check ((select public.is_staff()));
+create policy "staff full access" on public.guide_items for all to authenticated using ((select public.is_staff())) with check ((select public.is_staff()));
 create policy "staff full access" on public.quotes for all to authenticated using ((select public.is_staff())) with check ((select public.is_staff()));
 create policy "staff full access" on public.settings for all to authenticated using ((select public.is_staff())) with check ((select public.is_staff()));
 
 -- Signed-in users may use the tables (row level security above still applies).
 -- Logged-out visitors (the "anon" role) get no table access at all.
-grant select, insert, update, delete on public.tickets, public.transport_items, public.quotes, public.settings to authenticated;
-revoke all on public.tickets, public.transport_items, public.quotes, public.settings from anon;
+grant select, insert, update, delete on public.tickets, public.transport_items, public.guide_items, public.quotes, public.settings to authenticated;
+revoke all on public.tickets, public.transport_items, public.guide_items, public.quotes, public.settings from anon;
 revoke execute on function public.is_staff() from anon, public;
 grant execute on function public.is_staff() to authenticated;
 revoke execute on function public.touch_updated_at() from anon, authenticated, public;
 
--- Every ticket, transport and hotel line on saved quotes with its travel date,
--- for checking supplier invoices straight from Supabase > Table Editor.
+-- Every ticket, transport, meal, guide, hotel and group additional-charge line on saved quotes
+-- with its travel date, for checking supplier invoices straight from Supabase > Table Editor.
 -- security_invoker makes the view obey the same row level security.
-create view public.supplier_lines with (security_invoker = true) as
+create or replace view public.supplier_lines with (security_invoker = true) as
   select q.quote_number, q.quote_date, q.client_name,
          nullif(coalesce(l->>'travelDate', l->>'date'), '')::date as travel_date,
          'ticket'::text as line_type, l->>'code' as code, l->>'name' as item, l->>'supplier' as supplier,
@@ -116,13 +129,35 @@ create view public.supplier_lines with (security_invoker = true) as
     from public.quotes q
     cross join lateral jsonb_array_elements(coalesce(q.data->'transport', '[]'::jsonb)) l
   union all
-  -- Hotels have no date of their own: listed under the first day of the trip.
+  select q.quote_number, q.quote_date, q.client_name,
+         nullif(l->>'travelDate', '')::date,
+         'meal', null, concat_ws(' — ', l->>'meal', nullif(l->>'description', '')), l->>'supplier',
+         coalesce((l->>'pax')::numeric, 0), (l->>'adults')::numeric, (l->>'children')::numeric,
+         (l->>'adultPrice')::numeric, (l->>'childPrice')::numeric, (l->>'total')::numeric
+    from public.quotes q
+    cross join lateral jsonb_array_elements(coalesce(q.data->'meals', '[]'::jsonb)) l
+  union all
+  select q.quote_number, q.quote_date, q.client_name,
+         nullif(l->>'travelDate', '')::date,
+         'guide', nullif(l->>'code', ''), concat_ws(' — ', 'Guide', nullif(l->>'description', '')), l->>'supplier',
+         coalesce((l->>'qty')::numeric, 0), null, null, (l->>'unitPrice')::numeric, null, (l->>'total')::numeric
+    from public.quotes q
+    cross join lateral jsonb_array_elements(coalesce(q.data->'guides', '[]'::jsonb)) l
+  union all
+  -- Hotels and group additional charges have no date of their own: listed under the first day of the trip.
   select q.quote_number, q.quote_date, q.client_name,
          (select min(nullif(d->>'date', '')::date) from jsonb_array_elements(coalesce(q.data->'days', '[]'::jsonb)) d),
          'hotel', null, l->>'description', nullif(l->>'supplier', ''),
          1, null, null, (l->>'amount')::numeric, null, (l->>'amount')::numeric
     from public.quotes q
-    cross join lateral jsonb_array_elements(coalesce(q.data->'hotels', '[]'::jsonb)) l;
+    cross join lateral jsonb_array_elements(coalesce(q.data->'hotels', '[]'::jsonb)) l
+  union all
+  select q.quote_number, q.quote_date, q.client_name,
+         (select min(nullif(d->>'date', '')::date) from jsonb_array_elements(coalesce(q.data->'days', '[]'::jsonb)) d),
+         'additional', null, l->>'description', nullif(l->>'supplier', ''),
+         1, null, null, (l->>'amount')::numeric, null, (l->>'amount')::numeric
+    from public.quotes q
+    cross join lateral jsonb_array_elements(case when q.data->>'quoteType' = 'group' then coalesce(q.data->'additionalCharges', '[]'::jsonb) else '[]'::jsonb end) l;
 
 grant select on public.supplier_lines to authenticated;
 revoke all on public.supplier_lines from anon;
