@@ -5,7 +5,7 @@ The app works with the objects below. They are stored online in Supabase (see `c
 | Supabase table | Contents |
 |---|---|
 | `tickets` | one row per Ticket: `code, name, supplier, adult_price, child_price, valid_until, confirmed_at` |
-| `transport_items` | one row per TransportItem: `id, name, supplier, price` |
+| `transport_items` | one row per TransportItem: `id, code, name, supplier, price` |
 | `quotes` | one row per Quote: `id, quote_number, quote_date, client_name, total`, and `data` = the whole Quote object below |
 | `settings` | one row (`id` 1); `data` = `{ businessName, businessDetails, currency, defaultServiceCharge, profitDisplay, footer }` |
 | `supplier_lines` (view) | every ticket/transport/hotel line of every quote with its travel date, read-only |
@@ -20,7 +20,7 @@ The old offline version kept the same objects in localStorage under `qc.prices`,
 `{ code: "CT01" (uppercase, unique), name, supplier, adultPrice, childPrice, price (= adultPrice, kept for older code), validUntil: "YYYY-MM-DD", confirmedAt: "YYYY-MM-DD" }`
 
 ## TransportItem (price list)
-`{ id, name, supplier, price }`
+`{ id, code ("APU": uppercase, unique across tickets and transfers; blank on older items until edited), name, supplier, price }`
 
 ## Quote
 ```
@@ -31,12 +31,12 @@ The old offline version kept the same objects in localStorage under `qc.prices`,
   // Layout, in the order shown on the quote:
   days:   [{ date: "YYYY-MM-DD", lines: [
              { type: "ticket", code, name, supplier, adults, children, adultPrice, childPrice, total }
-           | { type: "transport", description, supplier, qty, unitPrice, total } ] }],
+           | { type: "transport", code, description, supplier, qty, unitPrice, total } ] }],
   hotels: [{ description, supplier (optional), amount }],
 
   // Flat copies for the supplier report (travel date = the day's date):
   tickets:   [{ code, name, supplier, travelDate, adults, children, adultPrice, childPrice, pax, unitPrice (= total / pax, rounded), total }],
-  transport: [{ description, supplier, date, travelDate, qty, unitPrice, total }],
+  transport: [{ code, description, supplier, date, travelDate, qty, unitPrice, total }],
 
   subtotalTickets, subtotalTransport, subtotalHotel, total,
   createdAt, updatedAt (ISO timestamps), createdBy, updatedBy (agent codes)

@@ -139,8 +139,8 @@ window.Cloud = (function () {
     valid_until: t.validUntil, confirmed_at: t.confirmedAt || null });
   const rowToTicket = (r) => ({ code: r.code, name: r.name, supplier: r.supplier, adultPrice: Number(r.adult_price), childPrice: Number(r.child_price),
     price: Number(r.adult_price), validUntil: r.valid_until, confirmedAt: r.confirmed_at || '' });
-  const transportToRow = (t) => ({ id: t.id, name: t.name, supplier: t.supplier, price: num(t.price) });
-  const rowToTransport = (r) => ({ id: r.id, name: r.name, supplier: r.supplier, price: Number(r.price) });
+  const transportToRow = (t) => ({ id: t.id, code: t.code || null, name: t.name, supplier: t.supplier, price: num(t.price) });
+  const rowToTransport = (r) => ({ id: r.id, code: r.code || '', name: r.name, supplier: r.supplier, price: Number(r.price) });
   const quoteToRow = (q) => ({ id: q.id, quote_number: q.quoteNumber, quote_date: q.date, client_name: q.clientName || '', total: num(q.total), data: q });
   const rowToQuote = (r) => Object.assign({}, r.data, { id: r.id, quoteNumber: r.quote_number });
 
