@@ -334,3 +334,12 @@ tr.ln input.sup { margin-top: 5px; font-size: 12.5px; padding: 5px 8px; }
 .import-offer .import-btns { display: flex; gap: 8px; flex-wrap: wrap; }
 .import-offer .msg { margin-top: 0; min-height: 0; }
 .ln .tr-code { display: inline-block; font-size: 11px; font-weight: 700; color: var(--brand-600); background: var(--brand-50); border-radius: 5px; padding: 1px 6px; margin: 0 0 4px 6px; }
+.kind.m { background: #e8f7ee; color: #1d7a45; }
+.kind.g { background: #f3e9ff; color: #6b3fb5; }
+.ln .meal-pick { display: block; width: auto; margin-bottom: 4px; padding: 4px 8px; font-size: 13px; }
+.day-add.day-extras { display: flex; flex-wrap: wrap; gap: 6px; padding-top: 0; border-top: 0; }
+.day-extras .btn { flex: 0 0 auto; }
+.qtype { display: flex; gap: 18px; flex-wrap: wrap; margin: 0 0 12px; }
+.qtype label { flex-direction: row; align-items: center; gap: 6px; font-weight: 600; margin: 0; cursor: pointer; }
+.qtype input { width: auto; margin: 0; }
+.paper .p-sheet td.p-tag.p-extra { background: #e9f3ff; color: #234b7a; }

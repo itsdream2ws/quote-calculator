@@ -4,6 +4,7 @@
  * Tables (see supabase/schema.sql):
  *   tickets          one row per price list ticket (code is the key)
  *   transport_items  one row per standard transport item
+ *   guide_items      one row per guide price (a guide for a place or attraction)
  *   quotes           one row per saved quote; `data` holds the whole quote as the app builds it
  *   settings         a single row (id 1); `data` holds the settings object
  * The app keeps working with the same objects as before (see DATA_FORMAT.md); this file
@@ -141,6 +142,8 @@ window.Cloud = (function () {
     price: Number(r.adult_price), validUntil: r.valid_until, confirmedAt: r.confirmed_at || '' });
   const transportToRow = (t) => ({ id: t.id, code: t.code || null, name: t.name, supplier: t.supplier, price: num(t.price) });
   const rowToTransport = (r) => ({ id: r.id, code: r.code || '', name: r.name, supplier: r.supplier, price: Number(r.price) });
+  const guideToRow = (t) => ({ id: t.id, code: t.code, name: t.name, supplier: t.supplier, price: num(t.price) });
+  const rowToGuide = (r) => ({ id: r.id, code: r.code, name: r.name, supplier: r.supplier, price: Number(r.price) });
   const quoteToRow = (q) => ({ id: q.id, quote_number: q.quoteNumber, quote_date: q.date, client_name: q.clientName || '', total: num(q.total), data: q });
   const rowToQuote = (r) => Object.assign({}, r.data, { id: r.id, quoteNumber: r.quote_number });
 
@@ -160,11 +163,11 @@ window.Cloud = (function () {
   // ---------- data ----------
   async function loadQuotes() { return (await fetchAll('quotes', 'id')).map(rowToQuote); }
   async function loadAll() {
-    const [tickets, transport, quotes, settingsRows] = await Promise.all([
-      fetchAll('tickets', 'code'), fetchAll('transport_items', 'id'), loadQuotes(),
+    const [tickets, transport, guides, quotes, settingsRows] = await Promise.all([
+      fetchAll('tickets', 'code'), fetchAll('transport_items', 'id'), fetchAll('guide_items', 'code'), loadQuotes(),
       sb.from('settings').select('data').eq('id', 1).then((r) => { if (r.error) throw r.error; return r.data; })
     ]);
-    return { prices: { tickets: tickets.map(rowToTicket), transport: transport.map(rowToTransport) }, quotes,
+    return { prices: { tickets: tickets.map(rowToTicket), transport: transport.map(rowToTransport), guides: guides.map(rowToGuide) }, quotes,
       settings: settingsRows.length ? settingsRows[0].data : null };
   }
   async function loadSettings() {
@@ -176,6 +179,8 @@ window.Cloud = (function () {
   const deleteTicket = async (code) => check(await sb.from('tickets').delete().eq('code', code));
   const upsertTransport = (list) => inChunks(list, 500, async (c) => check(await sb.from('transport_items').upsert(c.map(transportToRow), { onConflict: 'id' })));
   const deleteTransport = async (id) => check(await sb.from('transport_items').delete().eq('id', id));
+  const upsertGuides = (list) => inChunks(list, 500, async (c) => check(await sb.from('guide_items').upsert(c.map(guideToRow), { onConflict: 'id' })));
+  const deleteGuide = async (id) => check(await sb.from('guide_items').delete().eq('id', id));
   const saveQuote = async (q) => check(await sb.from('quotes').upsert(quoteToRow(q), { onConflict: 'id' }));
   const saveQuotes = (list) => inChunks(list, 100, async (c) => check(await sb.from('quotes').upsert(c.map(quoteToRow), { onConflict: 'id' })));
   const deleteQuote = async (id) => check(await sb.from('quotes').delete().eq('id', id));
@@ -185,7 +190,7 @@ window.Cloud = (function () {
     configured, requireLogin, signOut, changePassword, showLoading, hideGate, toast, fail, explain,
     get email() { return user ? user.email : ''; },
     get agent() { return user ? agentOf(user.email) : ''; },
-    loadAll, loadQuotes, loadSettings, upsertTickets, deleteTicket, upsertTransport, deleteTransport,
+    loadAll, loadQuotes, loadSettings, upsertTickets, deleteTicket, upsertTransport, deleteTransport, upsertGuides, deleteGuide,
     saveQuote, saveQuotes, deleteQuote, saveSettings
   };
 })();

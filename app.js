@@ -53,6 +53,7 @@
     }
   }
   prices.tickets.forEach(fixTicket);
+  prices.guides = prices.guides || [];
   Cloud.hideGate();
 
   // Writes to the online database run in the background; a failure shows a message.
@@ -83,8 +84,11 @@
   const normCode = (code) => String(code == null ? '' : code).trim().toUpperCase().replace(/\s+/g, '');
   const findTicket = (code) => prices.tickets.find((t) => t.code === normCode(code));
   const findTransport = (code) => { const c = normCode(code); return c ? prices.transport.find((t) => t.code === c) : undefined; };
-  // A code may belong to one ticket or one transfer, never both.
-  const codeInUse = (code, except) => (findTicket(code) && findTicket(code) !== except) || (findTransport(code) && findTransport(code) !== except);
+  const findGuide = (code) => { const c = normCode(code); return c ? prices.guides.find((t) => t.code === c) : undefined; };
+  // A code belongs to one ticket, transfer or guide only.
+  const codeOwner = (code) => findTicket(code) || findTransport(code) || findGuide(code);
+  const codeInUse = (code, except) => { const o = codeOwner(code); return !!o && o !== except; };
+  const codeKind = (code) => (findTicket(code) ? 'a ticket' : findTransport(code) ? 'a transfer' : 'a guide');
 
   // Price status for a ticket in the price list.
   function ticketStatus(t) {
@@ -116,6 +120,9 @@
   //     days: [{ date, lines: [TicketLine | TransportLine] }], hotels: [{ description, supplier, amount }] }
   //   TicketLine    { type:'ticket', code, name, supplier, adults, children, adultPrice, childPrice }
   //   TransportLine { type:'transport', code (optional), description, supplier, qty, unitPrice }
+  //   MealLine      { type:'meal', meal:'Breakfast'|'Lunch'|'Dinner', description, supplier, adults, children, adultPrice, childPrice }
+  //   GuideLine     { type:'guide', description, supplier, qty, unitPrice }
+  // group: true for a group quote; additional: [{ description, supplier, amount }] only counts on group quotes.
   const childPriceOf = (t) => (t.childPrice === '' || t.childPrice == null ? Number(t.adultPrice != null ? t.adultPrice : t.price) : Number(t.childPrice));
   const adultPriceOf = (t) => Number(t.adultPrice != null ? t.adultPrice : t.price);
   function addDays(iso, n) { const d = new Date(iso + 'T00:00:00'); d.setDate(d.getDate() + n); return isoDate(d); }
@@ -125,16 +132,19 @@
     return {
       id: null, quoteNumber: null, clientName: '', adults: 2, children: 0, date: today(), notes: '',
       serviceCharge: round2(settings.defaultServiceCharge || 0), itemised: true,
-      days: [{ date: '', lines: [] }], hotels: []
+      days: [{ date: '', lines: [] }], hotels: [], group: false, additional: []
     };
   }
+  const MEALS = ['Breakfast', 'Lunch', 'Dinner'];
+  const perPax = (l) => l.type === 'ticket' || l.type === 'meal';
 
   // Turns a saved quote (new or old format) into an editable draft.
   function draftFromQuote(q) {
     const c = JSON.parse(JSON.stringify(q));
     if (Array.isArray(c.days)) {
       return { id: c.id, quoteNumber: c.quoteNumber, clientName: c.clientName || '', adults: c.adults != null ? c.adults : 1, children: c.children || 0,
-        date: c.date, notes: c.notes || '', serviceCharge: c.serviceCharge, itemised: c.itemised !== false, days: c.days, hotels: c.hotels || [] };
+        date: c.date, notes: c.notes || '', serviceCharge: c.serviceCharge, itemised: c.itemised !== false, days: c.days, hotels: c.hotels || [],
+        group: c.quoteType === 'group', additional: c.additionalCharges || [] };
     }
     // Older quotes: separate ticket/transport lists with travel dates -> group by date.
     const byDate = {};
@@ -150,29 +160,43 @@
 
   let draft = load(DRAFT_KEY, null);
   if (!draft || !Array.isArray(draft.days)) draft = draft && (draft.tickets || draft.transport) ? draftFromQuote(draft) : blankDraft();
+  draft.group = !!draft.group; draft.additional = Array.isArray(draft.additional) ? draft.additional : [];
   let showErrors = false;
   const saveDraft = () => save(DRAFT_KEY, draft);
 
   function lineTotal(l) {
-    if (l.type === 'ticket') return round2((Number(l.adults) || 0) * (Number(l.adultPrice) || 0) + (Number(l.children) || 0) * (Number(l.childPrice) || 0));
+    if (perPax(l)) return round2((Number(l.adults) || 0) * (Number(l.adultPrice) || 0) + (Number(l.children) || 0) * (Number(l.childPrice) || 0));
     return round2((Number(l.qty) || 0) * (Number(l.unitPrice) || 0));
   }
   function calc(q) {
-    let tickets = 0, transport = 0;
-    q.days.forEach((d) => d.lines.forEach((l) => { if (l.type === 'ticket') tickets += lineTotal(l); else transport += lineTotal(l); }));
+    let tickets = 0, transport = 0, meals = 0, guides = 0;
+    q.days.forEach((d) => d.lines.forEach((l) => {
+      const t = lineTotal(l);
+      if (l.type === 'ticket') tickets += t; else if (l.type === 'meal') meals += t; else if (l.type === 'guide') guides += t; else transport += t;
+    }));
     const hotel = (q.hotels || []).reduce((s, h) => s + (Number(h.amount) || 0), 0);
+    const additional = q.group ? (q.additional || []).reduce((s, h) => s + (Number(h.amount) || 0), 0) : 0;
     const service = round2(Number(q.serviceCharge) || 0);
-    tickets = round2(tickets); transport = round2(transport);
-    return { tickets, transport, hotel: round2(hotel), service, total: round2(tickets + transport + hotel + service) };
+    tickets = round2(tickets); transport = round2(transport); meals = round2(meals); guides = round2(guides);
+    return { tickets, transport, meals, guides, hotel: round2(hotel), additional: round2(additional), service,
+      total: round2(tickets + transport + meals + guides + hotel + additional + service) };
   }
 
   function refreshPickers() {
     $('ticketList').innerHTML = prices.tickets.map((t) => '<option value="' + esc(t.code) + '">' +
       esc(t.code + ' — ' + t.name + ' (A ' + fmtNum(adultPriceOf(t)) + ' / C ' + fmtNum(childPriceOf(t)) + ')') + '</option>').join('') +
       prices.transport.filter((t) => t.code).map((t) => '<option value="' + esc(t.code) + '">' +
-      esc(t.code + ' — ' + t.name + ' (transfer ' + fmtNum(t.price) + ')') + '</option>').join('');
+      esc(t.code + ' — ' + t.name + ' (transfer ' + fmtNum(t.price) + ')') + '</option>').join('') +
+      prices.guides.map((t) => '<option value="' + esc(t.code) + '">' + esc(t.code + ' — Guide, ' + t.name + ' (' + fmtNum(t.price) + ')') + '</option>').join('');
     const sup = new Set(); prices.tickets.forEach((t) => t.supplier && sup.add(t.supplier)); prices.transport.forEach((t) => t.supplier && sup.add(t.supplier));
+    prices.guides.forEach((t) => t.supplier && sup.add(t.supplier));
     (draft.hotels || []).forEach((h) => h.supplier && sup.add(h.supplier));
+    (draft.additional || []).forEach((h) => h.supplier && sup.add(h.supplier));
+    quotes.forEach((q) => (q.days || []).forEach((d) => d.lines.forEach((l) => { if ((l.type === 'meal' || l.type === 'guide') && l.supplier) sup.add(l.supplier); })));
+    // Additional charges: a few common ones, plus anything typed on earlier quotes.
+    const extras = new Set(['Coach / bus', 'Tour leader', 'Entrance permits', 'Tips', 'Group handling fee', 'Porterage']);
+    quotes.forEach((q) => (q.additionalCharges || []).forEach((a) => a.description && extras.add(a.description)));
+    $('extraList').innerHTML = [...extras].sort().map((x) => '<option value="' + esc(x) + '">').join('');
     $('supplierList').innerHTML = [...sup].sort().map((s) => '<option value="' + esc(s) + '">').join('');
   }
   const transportOptions = () => '<option value="">Custom transport line</option>' + prices.transport
@@ -190,6 +214,25 @@
         '<label>C<input class="n" type="number" min="0" step="1" data-f="children" value="' + esc(l.children) + '"></label></div></td>' +
         '<td><div class="pax2"><label>A<input class="n price" type="number" min="0" step="0.01" data-f="adultPrice" value="' + esc(l.adultPrice) + '"></label>' +
         '<label>C<input class="n price" type="number" min="0" step="0.01" data-f="childPrice" value="' + esc(l.childPrice) + '"></label></div></td>' +
+        '<td class="amt" data-amt></td><td>' + del + '</td></tr>';
+    }
+    if (l.type === 'meal') {
+      return '<tr class="ln meal"' + key + '><td>' + move + '</td>' +
+        '<td><span class="kind m">Meal</span><select class="meal-pick" data-f="meal">' + MEALS.map((m) => '<option' + (m === l.meal ? ' selected' : '') + '>' + m + '</option>').join('') + '</select>' +
+        '<input data-f="description" placeholder="Restaurant or menu (optional)" value="' + esc(l.description) + '">' +
+        '<input class="sup" data-f="supplier" placeholder="Supplier" list="supplierList" value="' + esc(l.supplier) + '"></td>' +
+        '<td><div class="pax2"><label>A<input class="n" type="number" min="0" step="1" data-f="adults" value="' + esc(l.adults) + '"></label>' +
+        '<label>C<input class="n" type="number" min="0" step="1" data-f="children" value="' + esc(l.children) + '"></label></div></td>' +
+        '<td><div class="pax2"><label>A<input class="n price" type="number" min="0" step="0.01" data-f="adultPrice" value="' + esc(l.adultPrice) + '"></label>' +
+        '<label>C<input class="n price" type="number" min="0" step="0.01" data-f="childPrice" value="' + esc(l.childPrice) + '"></label></div></td>' +
+        '<td class="amt" data-amt></td><td>' + del + '</td></tr>';
+    }
+    if (l.type === 'guide') {
+      return '<tr class="ln guide"' + key + '><td>' + move + '</td>' +
+        '<td><span class="kind g">Guide</span>' + (l.code ? '<b class="code tr-code">' + esc(l.code) + '</b>' : '') + '<input data-f="description" placeholder="e.g. English-speaking guide, full day" value="' + esc(l.description) + '">' +
+        '<input class="sup" data-f="supplier" placeholder="Supplier" list="supplierList" value="' + esc(l.supplier) + '"></td>' +
+        '<td><div class="pax2"><label>Qty<input class="n" type="number" min="1" step="1" data-f="qty" value="' + esc(l.qty) + '"></label></div></td>' +
+        '<td><div class="pax2"><label>Price<input class="n price" type="number" min="0" step="0.01" data-f="unitPrice" value="' + esc(l.unitPrice) + '"></label></div></td>' +
         '<td class="amt" data-amt></td><td>' + del + '</td></tr>';
     }
     return '<tr class="ln transport"' + key + '><td>' + move + '</td>' +
@@ -210,14 +253,16 @@
         '<span class="day-sub" data-daysub="' + d + '"></span>' +
         '<button class="btn small ghost danger" data-act="del-day" data-d="' + d + '">Remove day</button></div>' +
         '<div class="scroll"><table class="lines day-lines"><tbody>' +
-          (day.lines.map((l, i) => lineRow(l, d, i, day.lines.length)).join('') || '<tr><td colspan="6" class="muted empty-day">Nothing on this day yet. Type a ticket or transfer code, or add transport below.</td></tr>') +
+          (day.lines.map((l, i) => lineRow(l, d, i, day.lines.length)).join('') || '<tr><td colspan="6" class="muted empty-day">Nothing on this day yet. Type a ticket, transfer or guide code, or use the buttons below.</td></tr>') +
         '</tbody></table></div>' +
         '<div class="day-add">' +
           '<div class="cashier"><svg class="cashier-icon" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>' +
-          '<input class="code-in" data-d="' + d + '" list="ticketList" placeholder="Ticket or transfer code, then Enter" autocomplete="off"></div>' +
+          '<input class="code-in" data-d="' + d + '" list="ticketList" placeholder="Ticket, transfer or guide code, then Enter" autocomplete="off"></div>' +
           '<select class="tr-pick" data-d="' + d + '">' + topts + '</select>' +
           '<button class="btn" data-act="add-tr" data-d="' + d + '">+ Transport</button>' +
         '</div>' +
+        '<div class="day-add day-extras">' + MEALS.map((m) => '<button class="btn small" data-act="add-meal" data-meal="' + m + '" data-d="' + d + '">+ ' + m + '</button>').join('') +
+          '<button class="btn small" data-act="add-guide" data-d="' + d + '">+ Guide</button></div>' +
         '<div class="msg" data-codemsg="' + d + '"></div>' +
       '</div>').join('');
   }
@@ -231,6 +276,16 @@
     ).join('') || '<tr><td colspan="4" class="muted">No hotel on this quote.</td></tr>';
   }
 
+  function renderAdditional() {
+    $('additionalCard').classList.toggle('hidden', !draft.group);
+    $('additionalRows').innerHTML = draft.additional.map((h, i) =>
+      '<tr data-x="' + i + '"><td><input data-f="description" list="extraList" placeholder="e.g. Coach / bus" value="' + esc(h.description) + '"></td>' +
+      '<td><input data-f="supplier" list="supplierList" placeholder="Optional" value="' + esc(h.supplier) + '"></td>' +
+      '<td class="num"><input class="n price" type="number" min="0" step="0.01" data-f="amount" value="' + esc(h.amount) + '"></td>' +
+      '<td><button class="btn small ghost danger" data-act="del-extra" data-x="' + i + '" title="Remove">✕</button></td></tr>'
+    ).join('') || '<tr><td colspan="4" class="muted">No additional charges.</td></tr>';
+  }
+
   function renderQuote() {
     $('quoteHeading').textContent = draft.id ? 'Editing quote ' + draft.quoteNumber : 'New quote';
     $('qClient').value = draft.clientName;
@@ -240,8 +295,9 @@
     $('qNotes').value = draft.notes || '';
     $('qService').value = draft.serviceCharge;
     $('qItemised').checked = draft.itemised !== false;
+    $('qTypeNormal').checked = !draft.group; $('qTypeGroup').checked = !!draft.group;
     $('profitHint').textContent = { service: 'shown as Service charge', hide: 'hidden from client', profit: 'shown as PROFIT' }[settings.profitDisplay] || '';
-    renderDays(); renderHotels(); updateTotals();
+    renderDays(); renderHotels(); renderAdditional(); updateTotals();
   }
 
   const lineSel = (d, i, f) => '#days tr[data-d="' + d + '"][data-l="' + i + '"] [data-f="' + f + '"]';
@@ -268,9 +324,12 @@
     $('tTickets').textContent = money(c.tickets);
     $('tTransport').textContent = money(c.transport);
     $('tHotel').textContent = money(c.hotel);
+    $('tMeals').textContent = money(c.meals + c.guides);
+    $('tExtra').textContent = money(c.additional);
+    document.querySelectorAll('.extra-total').forEach((el) => el.classList.toggle('hidden', !draft.group));
     $('tService').textContent = money(c.service);
     $('tGrand').textContent = money(c.total);
-    $('tPax').textContent = (draft.clientName ? draft.clientName + ' · ' : '') + paxLabel(draft.adults, draft.children);
+    $('tPax').textContent = (draft.clientName ? draft.clientName + ' · ' : '') + paxLabel(draft.adults, draft.children) + (draft.group ? ' · Group' : '');
     const v = validate(draft);
     renderWarnings(v.warnings);
     if (showErrors) renderErrors(v); else clearErrors();
@@ -288,7 +347,7 @@
     if (isWhole(q.adults, 0) && isWhole(q.children, 0) && Number(q.adults) + Number(q.children) < 1) { errors.push('Enter at least 1 adult or child.'); bad.push('#qAdults'); }
     if (!isValidDate(q.date)) { errors.push('Enter a valid quote date.'); bad.push('#qDate'); }
     const lineCount = q.days.reduce((s, d) => s + d.lines.length, 0);
-    if (!lineCount && !q.hotels.length) errors.push('Add at least one attraction, transport line or hotel.');
+    if (!lineCount && !q.hotels.length && !(q.group && q.additional.length)) errors.push('Add at least one attraction, transport line or hotel.');
     if (!isMoney(q.serviceCharge)) { errors.push('Profit must be 0 or more.'); bad.push('#qService'); }
     const seen = {};
     q.days.forEach((day, d) => {
@@ -314,6 +373,19 @@
             if (isMoney(l.adultPrice) && round2(adultPriceOf(t)) !== round2(l.adultPrice)) warnings.push(n + ' adult price is ' + fmtNum(l.adultPrice) + ' here; the price list says ' + fmtNum(adultPriceOf(t)) + '.');
             if (Number(l.children) > 0 && isMoney(l.childPrice) && round2(childPriceOf(t)) !== round2(l.childPrice)) warnings.push(n + ' child price is ' + fmtNum(l.childPrice) + ' here; the price list says ' + fmtNum(childPriceOf(t)) + '.');
           }
+        } else if (l.type === 'meal') {
+          const n = dn + ', ' + String(l.meal || 'meal').toLowerCase();
+          if (!String(l.supplier).trim()) { errors.push(n + ': enter the supplier.'); bad.push(lineSel(d, i, 'supplier')); }
+          if (!isWhole(l.adults, 0)) { errors.push(n + ': adults must be a whole number.'); bad.push(lineSel(d, i, 'adults')); }
+          if (!isWhole(l.children, 0)) { errors.push(n + ': children must be a whole number.'); bad.push(lineSel(d, i, 'children')); }
+          if (isWhole(l.adults, 0) && isWhole(l.children, 0) && Number(l.adults) + Number(l.children) < 1) { errors.push(n + ': needs at least 1 adult or child.'); bad.push(lineSel(d, i, 'adults')); }
+          if (!isMoney(l.adultPrice)) { errors.push(n + ': adult price must be 0 or more.'); bad.push(lineSel(d, i, 'adultPrice')); }
+          if (!isMoney(l.childPrice)) { errors.push(n + ': child price must be 0 or more.'); bad.push(lineSel(d, i, 'childPrice')); }
+        } else if (l.type === 'guide') {
+          const n = dn + ', guide';
+          if (!String(l.supplier).trim()) { errors.push(n + ': enter the supplier.'); bad.push(lineSel(d, i, 'supplier')); }
+          if (!isWhole(l.qty, 1)) { errors.push(n + ': quantity must be 1 or more.'); bad.push(lineSel(d, i, 'qty')); }
+          if (!isMoney(l.unitPrice)) { errors.push(n + ': price must be 0 or more.'); bad.push(lineSel(d, i, 'unitPrice')); }
         } else {
           const n = dn + ', transport line ' + (i + 1);
           if (!String(l.description).trim()) { errors.push(n + ': enter a description.'); bad.push(lineSel(d, i, 'description')); }
@@ -327,6 +399,11 @@
       const n = 'Hotel ' + (i + 1);
       if (!String(h.description).trim()) { errors.push(n + ': enter the hotel name.'); bad.push('#hotelRows tr[data-h="' + i + '"] [data-f="description"]'); }
       if (!isMoney(h.amount)) { errors.push(n + ': amount must be 0 or more.'); bad.push('#hotelRows tr[data-h="' + i + '"] [data-f="amount"]'); }
+    });
+    if (q.group) q.additional.forEach((h, i) => {
+      const n = 'Additional charge ' + (i + 1);
+      if (!String(h.description).trim()) { errors.push(n + ': enter what it is for.'); bad.push('#additionalRows tr[data-x="' + i + '"] [data-f="description"]'); }
+      if (!isMoney(h.amount)) { errors.push(n + ': amount must be 0 or more.'); bad.push('#additionalRows tr[data-x="' + i + '"] [data-f="amount"]'); }
     });
     return { errors, bad, warnings };
   }
@@ -357,18 +434,26 @@
     saveDraft(); renderDays(); updateTotals();
     setMsg(dayMsg(d), 'Added ' + (t.code ? t.code + ' — ' : '') + t.name + '.', 'ok');
   }
+  function addGuideLine(d, g) {
+    draft.days[d].lines.push({ type: 'guide', code: g.code, description: g.name, supplier: g.supplier, qty: 1, unitPrice: round2(g.price) });
+    saveDraft(); renderDays(); updateTotals();
+    setMsg(dayMsg(d), 'Added guide ' + g.code + ' — ' + g.name + '.', 'ok');
+  }
   function addByCode(d, raw) {
     raw = raw.trim(); if (!raw) return;
     let t = findTicket(raw);
     let tr = t ? null : findTransport(raw);
-    if (!t && !tr) { // a unique part of the name also works
+    let g = t || tr ? null : findGuide(raw);
+    if (!t && !tr && !g) { // a unique part of the name also works
       const q = raw.toLowerCase();
       const m = prices.tickets.filter((x) => x.name.toLowerCase().includes(q));
       const mr = prices.transport.filter((x) => x.name.toLowerCase().includes(q));
-      if (m.length + mr.length === 1) { t = m[0]; tr = mr[0]; }
-      else { restoreCode(d, raw); setMsg(dayMsg(d), m.length + mr.length ? 'More than one ticket or transfer matches "' + raw + '". Type the code.' : 'No ticket or transfer with code "' + raw + '".', 'err'); return; }
+      const mg = prices.guides.filter((x) => ('guide ' + x.name).toLowerCase().includes(q));
+      if (m.length + mr.length + mg.length === 1) { t = m[0]; tr = mr[0]; g = mg[0]; }
+      else { restoreCode(d, raw); setMsg(dayMsg(d), m.length + mr.length + mg.length ? 'More than one item matches "' + raw + '". Type the code.' : 'No ticket, transfer or guide with code "' + raw + '".', 'err'); return; }
     }
     if (tr) { addTransportLine(d, tr); focusField('.code-in[data-d="' + d + '"]'); return; }
+    if (g) { addGuideLine(d, g); focusField('.code-in[data-d="' + d + '"]'); return; }
     const st = ticketStatus(t);
     if (st.level === 'bad') { restoreCode(d, raw); setMsg(dayMsg(d), t.code + ' price expired on ' + fmtDate(t.validUntil) + '. Update it in the price list first.', 'err'); return; }
     draft.days[d].lines.push({ type: 'ticket', code: t.code, name: t.name, supplier: t.supplier,
@@ -385,7 +470,7 @@
   $('days').addEventListener('input', (e) => {
     const t = e.target;
     // picking a ticket from the suggestion list adds it straight away
-    if (t.classList.contains('code-in')) { if ((!e.inputType || e.inputType === 'insertReplacementText') && (findTicket(t.value) || findTransport(t.value))) takeCode(t); return; }
+    if (t.classList.contains('code-in')) { if ((!e.inputType || e.inputType === 'insertReplacementText') && codeOwner(t.value)) takeCode(t); return; }
     if (t.classList.contains('day-date')) {
       draft.days[t.dataset.d].date = t.value; saveDraft();
       const dow = t.parentNode.querySelector('.day-dow');
@@ -411,6 +496,16 @@
         focusField(lineSel(d, lines.length - 1, t ? 'unitPrice' : 'description'));
         return;
       }
+      case 'add-meal':
+        lines.push({ type: 'meal', meal: b.dataset.meal, description: '', supplier: '', adults: Number(draft.adults) || 0, children: Number(draft.children) || 0, adultPrice: '', childPrice: '' });
+        saveDraft(); renderDays(); updateTotals(); refreshPickers();
+        focusField(lineSel(d, lines.length - 1, 'description'));
+        return;
+      case 'add-guide':
+        lines.push({ type: 'guide', description: '', supplier: '', qty: 1, unitPrice: '' });
+        saveDraft(); renderDays(); updateTotals();
+        focusField(lineSel(d, lines.length - 1, 'description'));
+        return;
       case 'del-line': lines.splice(i, 1); break;
       case 'up': if (i > 0) [lines[i - 1], lines[i]] = [lines[i], lines[i - 1]]; break;
       case 'down': if (i < lines.length - 1) [lines[i + 1], lines[i]] = [lines[i], lines[i + 1]]; break;
@@ -445,11 +540,29 @@
     draft.hotels.splice(Number(b.dataset.h), 1); saveDraft(); renderHotels(); updateTotals();
   });
 
+  ['qTypeNormal', 'qTypeGroup'].forEach((id) => $(id).addEventListener('change', () => {
+    draft.group = $('qTypeGroup').checked; saveDraft(); renderAdditional(); updateTotals();
+  }));
+  $('addExtraBtn').addEventListener('click', () => {
+    draft.additional.push({ description: '', supplier: '', amount: '' });
+    saveDraft(); renderAdditional(); updateTotals();
+    focusField('#additionalRows tr[data-x="' + (draft.additional.length - 1) + '"] [data-f="description"]');
+  });
+  $('additionalRows').addEventListener('input', (e) => {
+    const f = e.target.dataset.f, tr = e.target.closest('tr[data-x]'); if (!f || !tr) return;
+    draft.additional[tr.dataset.x][f] = f === 'amount' ? (e.target.value === '' ? '' : Number(e.target.value)) : e.target.value;
+    saveDraft(); updateTotals();
+  });
+  $('additionalRows').addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-act="del-extra"]'); if (!b) return;
+    draft.additional.splice(Number(b.dataset.x), 1); saveDraft(); renderAdditional(); updateTotals();
+  });
+
   // Changing the group's adults/children also updates ticket lines that still had the old numbers.
   function onPaxChange(field, el) {
     const old = Number(draft[field]);
     const v = el.value === '' ? '' : Number(el.value);
-    draft.days.forEach((day) => day.lines.forEach((l) => { if (l.type === 'ticket' && Number(l[field]) === old && l[field] !== '') l[field] = v; }));
+    draft.days.forEach((day) => day.lines.forEach((l) => { if (perPax(l) && Number(l[field]) === old && l[field] !== '') l[field] = v; }));
     draft[field] = v;
     saveDraft();
     document.querySelectorAll('#days [data-f="' + field + '"]').forEach((inp) => {
@@ -478,10 +591,19 @@
   function buildQuote(src, c) {
     const days = src.days.map((day) => ({ date: day.date, lines: day.lines.map((l) => l.type === 'ticket'
       ? { type: 'ticket', code: l.code, name: l.name, supplier: l.supplier, adults: Number(l.adults), children: Number(l.children), adultPrice: round2(l.adultPrice), childPrice: round2(l.childPrice), total: lineTotal(l) }
+      : l.type === 'meal'
+      ? { type: 'meal', meal: l.meal, description: String(l.description || '').trim(), supplier: String(l.supplier).trim(), adults: Number(l.adults), children: Number(l.children), adultPrice: round2(l.adultPrice), childPrice: round2(l.childPrice), total: lineTotal(l) }
+      : l.type === 'guide'
+      ? { type: 'guide', code: l.code || '', description: String(l.description || '').trim(), supplier: String(l.supplier).trim(), qty: Number(l.qty), unitPrice: round2(l.unitPrice), total: lineTotal(l) }
       : { type: 'transport', code: l.code || '', description: String(l.description).trim(), supplier: String(l.supplier).trim(), qty: Number(l.qty), unitPrice: round2(l.unitPrice), total: lineTotal(l) }) }));
-    const tickets = [], transport = [];
+    const tickets = [], transport = [], meals = [], guides = [];
     days.forEach((day) => day.lines.forEach((l) => {
-      if (l.type === 'ticket') {
+      if (l.type === 'meal') {
+        meals.push({ meal: l.meal, description: l.description, supplier: l.supplier, travelDate: day.date, adults: l.adults, children: l.children,
+          adultPrice: l.adultPrice, childPrice: l.childPrice, pax: l.adults + l.children, total: l.total });
+      } else if (l.type === 'guide') {
+        guides.push({ code: l.code, description: l.description, supplier: l.supplier, travelDate: day.date, qty: l.qty, unitPrice: l.unitPrice, total: l.total });
+      } else if (l.type === 'ticket') {
         const pax = l.adults + l.children;
         tickets.push({ code: l.code, name: l.name, supplier: l.supplier, travelDate: day.date, adults: l.adults, children: l.children,
           adultPrice: l.adultPrice, childPrice: l.childPrice, pax, unitPrice: pax ? round2(l.total / pax) : 0, total: l.total });
@@ -493,8 +615,11 @@
       clientName: src.clientName.trim(), adults: Number(src.adults), children: Number(src.children), date: src.date,
       notes: (src.notes || '').trim(), currency: settings.currency, serviceCharge: c.service, itemised: src.itemised !== false,
       days, hotels: src.hotels.map((h) => ({ description: String(h.description).trim(), supplier: String(h.supplier || '').trim(), amount: round2(h.amount) })),
-      tickets, transport,
-      subtotalTickets: c.tickets, subtotalTransport: c.transport, subtotalHotel: c.hotel, total: c.total
+      quoteType: src.group ? 'group' : 'normal',
+      additionalCharges: src.group ? (src.additional || []).map((h) => ({ description: String(h.description).trim(), supplier: String(h.supplier || '').trim(), amount: round2(h.amount) })) : [],
+      tickets, transport, meals, guides,
+      subtotalTickets: c.tickets, subtotalTransport: c.transport, subtotalMeals: c.meals, subtotalGuides: c.guides, subtotalHotel: c.hotel,
+      subtotalAdditional: c.additional, total: c.total
     };
   }
 
@@ -550,7 +675,7 @@
     openPreview(Object.assign({ quoteNumber: draft.quoteNumber || '(not saved yet)' }, buildQuote(draft, calc(draft))), false);
   });
   $('clearBtn').addEventListener('click', () => {
-    const hasContent = draft.clientName || draft.hotels.length || draft.days.some((d) => d.lines.length);
+    const hasContent = draft.clientName || draft.hotels.length || draft.additional.length || draft.days.some((d) => d.lines.length);
     if (hasContent && !draft.id && !confirm('Discard this unsaved quote?')) return;
     draft = blankDraft(); showErrors = false; saveDraft(); setMsg('saveMsg', ''); renderQuote(); $('qClient').focus();
   });
@@ -570,14 +695,16 @@
     let h = '<div class="p-head"><div><div class="p-biz">' + esc(settings.businessName) + '</div><div class="p-details">' + esc(settings.businessDetails) + '</div></div>' +
       '<div><div class="p-title">QUOTATION</div><div class="p-meta">No. ' + esc(q.quoteNumber) + '<br>Date: ' + esc(fmtDate(q.date)) + '</div></div></div>';
     h += '<table class="p-sheet"><thead>' +
-      '<tr><th colspan="' + cols + '" class="p-client-bar">' + esc((src.clientName || '').toUpperCase()) + ' (' + esc(paxLabel(groupA, groupC)) + ')</th></tr>' +
+      '<tr><th colspan="' + cols + '" class="p-client-bar">' + esc((src.clientName || '').toUpperCase()) + ' (' + esc(paxLabel(groupA, groupC)) + ')' + (src.quoteType === 'group' ? ' · GROUP' : '') + '</th></tr>' +
       '<tr><th class="c-date">Date</th><th>Transport and attractions</th>' + (itemised ? '<th class="num c-total">Total</th>' : '') + '</tr></thead><tbody>';
     src.days.forEach((day, di) => {
       if (di > 0) h += '<tr class="p-gap"><td colspan="' + cols + '"></td></tr>';
       day.lines.forEach((l, i) => {
         let label = l.type === 'ticket' ? l.name : l.description;
         if (l.type === 'ticket' && (l.adults !== groupA || l.children !== groupC)) label += ' (' + paxLabel(l.adults, l.children) + ')';
-        if (l.type === 'transport' && l.qty > 1) label += ' × ' + l.qty;
+        if (l.type === 'meal') label = l.meal + (l.description ? ' — ' + l.description : '') + (l.adults !== groupA || l.children !== groupC ? ' (' + paxLabel(l.adults, l.children) + ')' : '');
+        if (l.type === 'guide') label = 'Guide' + (l.description ? ' — ' + l.description : '');
+        if ((l.type === 'transport' || l.type === 'guide') && l.qty > 1) label += ' × ' + l.qty;
         h += '<tr class="p-line">' +
           (i === 0 ? '<td class="c-date p-day" rowspan="' + day.lines.length + '"><b>' + esc(fmtDate(day.date)) + '</b><span>' +
             esc(new Date(day.date + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'long' })) + '</span></td>' : '') +
@@ -589,6 +716,14 @@
       src.hotels.forEach((ht, i) => {
         h += '<tr class="p-line p-hotel">' + (i === 0 ? '<td class="c-date p-tag" rowspan="' + src.hotels.length + '">Hotel</td>' : '') +
           '<td>' + esc(ht.description) + '</td>' + (itemised ? '<td class="num">' + fmtNum(ht.amount) + '</td>' : '') + '</tr>';
+      });
+    }
+    const extra = src.quoteType === 'group' ? (src.additionalCharges || []) : [];
+    if (extra.length) {
+      h += '<tr class="p-gap"><td colspan="' + cols + '"></td></tr>';
+      extra.forEach((x, i) => {
+        h += '<tr class="p-line p-hotel">' + (i === 0 ? '<td class="c-date p-tag p-extra" rowspan="' + extra.length + '">Additional</td>' : '') +
+          '<td>' + esc(x.description) + '</td>' + (itemised ? '<td class="num">' + fmtNum(x.amount) + '</td>' : '') + '</tr>';
       });
     }
     if (itemised && mode !== 'hide' && src.serviceCharge > 0) {
@@ -675,7 +810,7 @@
       (!from || q.date >= from) && (!to || q.date <= to)
     ).sort((a, b) => (b.date + b.quoteNumber).localeCompare(a.date + a.quoteNumber));
     $('savedRows').innerHTML = list.map((q) =>
-      '<tr><td>' + esc(fmtDate(q.date)) + '</td><td>' + esc(q.quoteNumber) + '</td><td>' + esc(q.clientName) + '</td>' +
+      '<tr><td>' + esc(fmtDate(q.date)) + '</td><td>' + esc(q.quoteNumber) + '</td><td>' + esc(q.clientName) + (q.quoteType === 'group' ? ' <span class="pill ok">Group</span>' : '') + '</td>' +
       '<td>' + esc(q.adults != null ? paxLabel(q.adults, q.children) : '') + '</td><td>' + esc(q.createdBy || '') + '</td><td class="num">' + esc((q.currency ? q.currency + ' ' : '') + fmtNum(q.total)) + '</td>' +
       '<td class="actions"><button class="btn small" data-act="view" data-id="' + esc(q.id) + '">View / download</button> ' +
       '<button class="btn small" data-act="edit" data-id="' + esc(q.id) + '">Edit</button> ' +
@@ -742,9 +877,17 @@
       '<td class="actions"><button class="btn small" data-ract="edit" data-id="' + esc(t.id) + '">Edit</button> ' +
       '<button class="btn small ghost danger" data-ract="del" data-id="' + esc(t.id) + '">Delete</button></td></tr>'
     ).join('') || '<tr><td colspan="5" class="muted">No transport items yet.</td></tr>';
+    const gf = $('gdFilter').value.trim().toLowerCase();
+    $('guidePriceRows').innerHTML = prices.guides.slice().sort((a, b) => a.code.localeCompare(b.code))
+      .filter((t) => !gf || (t.code + ' ' + t.name + ' ' + t.supplier).toLowerCase().includes(gf)).map((t) =>
+      '<tr><td><b>' + esc(t.code) + '</b></td><td>' + esc(t.name) + '</td><td>' + esc(t.supplier) + '</td><td class="num">' + fmtNum(t.price) + '</td>' +
+      '<td class="actions"><button class="btn small" data-gact="edit" data-id="' + esc(t.id) + '">Edit</button> ' +
+      '<button class="btn small ghost danger" data-gact="del" data-id="' + esc(t.id) + '">Delete</button></td></tr>'
+    ).join('') || '<tr><td colspan="5" class="muted">No guides yet.</td></tr>';
     renderPriceBadge();
   }
   $('tfFilter').addEventListener('input', renderPrices);
+  $('gdFilter').addEventListener('input', renderPrices);
   $('trFilter').addEventListener('input', renderPrices);
 
   function resetTicketForm() {
@@ -763,7 +906,7 @@
     if (isNaN(price) || price < 0) return setMsg('tfMsg', 'Adult price must be 0 or more.', 'err');
     if (isNaN(child) || child < 0) return setMsg('tfMsg', 'Child price must be 0 or more (or leave it blank).', 'err');
     if (!isValidDate(validUntil)) return setMsg('tfMsg', 'Enter a valid "valid until" date.', 'err');
-    if (code !== editing && codeInUse(code)) return setMsg('tfMsg', 'Code ' + code + ' is already used by ' + (findTicket(code) ? 'another ticket' : 'a transfer') + '.', 'err');
+    if (code !== editing && codeInUse(code)) return setMsg('tfMsg', 'Code ' + code + ' is already used by ' + (findTicket(code) ? 'another ticket' : codeKind(code)) + '.', 'err');
     const item = { code, name, supplier, adultPrice: round2(price), childPrice: round2(child), price: round2(price), validUntil, confirmedAt: today() };
     if (editing) {
       const i = prices.tickets.findIndex((t) => t.code === editing);
@@ -808,7 +951,7 @@
     if (isNaN(price) || price < 0) return setMsg('trMsg', 'Price must be 0 or more.', 'err');
     const id = $('trEditing').value;
     const current = id ? prices.transport.find((t) => t.id === id) : null;
-    if (codeInUse(code, current)) return setMsg('trMsg', 'Code ' + code + ' is already used by ' + (findTicket(code) ? 'a ticket' : 'another transfer') + '.', 'err');
+    if (codeInUse(code, current)) return setMsg('trMsg', 'Code ' + code + ' is already used by ' + (findTransport(code) ? 'another transfer' : codeKind(code)) + '.', 'err');
     let item;
     if (current) item = Object.assign(current, { code, name, supplier, price: round2(price) });
     else prices.transport.push(item = { id: uid(), code, name, supplier, price: round2(price) });
@@ -824,6 +967,38 @@
     }
     if (b.dataset.ract === 'del' && confirm('Delete transport item "' + t.name + '"?')) {
       prices.transport = prices.transport.filter((x) => x !== t); persist(Cloud.deleteTransport(t.id), 'delete transport item ' + t.name); renderPrices();
+    }
+  });
+
+  function resetGuideForm() {
+    $('guideForm').reset(); $('gdEditing').value = '';
+    $('gdSubmit').textContent = 'Add guide'; $('gdCancel').classList.add('hidden');
+  }
+  $('gdCancel').addEventListener('click', resetGuideForm);
+  $('guideForm').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const code = normCode($('gdCode').value);
+    const name = $('gdName').value.trim(), supplier = $('gdSupplier').value.trim(), price = parseNum($('gdPrice').value);
+    if (!code || !name || !supplier) return setMsg('gdMsg', 'Code, place and supplier are required.', 'err');
+    if (isNaN(price) || price < 0) return setMsg('gdMsg', 'Price must be 0 or more.', 'err');
+    const id = $('gdEditing').value;
+    const current = id ? prices.guides.find((t) => t.id === id) : null;
+    if (codeInUse(code, current)) return setMsg('gdMsg', 'Code ' + code + ' is already used by ' + (findGuide(code) ? 'another guide' : codeKind(code)) + '.', 'err');
+    let item;
+    if (current) item = Object.assign(current, { code, name, supplier, price: round2(price) });
+    else prices.guides.push(item = { id: uid(), code, name, supplier, price: round2(price) });
+    persist(Cloud.upsertGuides([item]), 'save guide ' + code);
+    resetGuideForm(); renderPrices(); setMsg('gdMsg', (id ? 'Updated ' : 'Added ') + code + '.', 'ok'); $('gdCode').focus();
+  });
+  $('guidePriceRows').addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-gact]'); if (!b) return;
+    const t = prices.guides.find((x) => x.id === b.dataset.id); if (!t) return;
+    if (b.dataset.gact === 'edit') {
+      $('gdEditing').value = t.id; $('gdCode').value = t.code; $('gdName').value = t.name; $('gdSupplier').value = t.supplier; $('gdPrice').value = t.price;
+      $('gdSubmit').textContent = 'Save changes'; $('gdCancel').classList.remove('hidden'); $('gdPrice').focus();
+    }
+    if (b.dataset.gact === 'del' && confirm('Delete guide ' + t.code + ' — ' + t.name + '? Saved quotes keep their copy.')) {
+      prices.guides = prices.guides.filter((x) => x !== t); persist(Cloud.deleteGuide(t.id), 'delete guide ' + t.code); renderPrices();
     }
   });
 
@@ -878,7 +1053,7 @@
   //    transport name and supplier) are replaced only when `overwrite` is true (restoring a backup).
   //  - Settings: taken from the file when `overwrite` is true or nothing has been saved online yet.
   async function importData(d, overwrite) {
-    const res = { quotesAdded: 0, quotesUpdated: 0, renumbered: [], tickets: 0, transport: 0, skipped: 0 };
+    const res = { quotesAdded: 0, quotesUpdated: 0, renumbered: [], tickets: 0, transport: 0, guides: 0, skipped: 0 };
     const tUp = [], rUp = [], qUp = [];
     ((d.prices && d.prices.tickets) || []).forEach((t0) => {
       const t = fixTicket(Object.assign({}, t0));
@@ -899,6 +1074,16 @@
       if (i >= 0 && !overwrite) return;
       if (i >= 0) { t.id = prices.transport[i].id; prices.transport[i] = t; } else prices.transport.push(t);
       rUp.push(t); res.transport++;
+    });
+    const gUp = [];
+    ((d.prices && d.prices.guides) || []).forEach((t0) => {
+      const t = { id: t0.id || uid(), code: normCode(t0.code), name: String(t0.name || '').trim(), supplier: String(t0.supplier || '').trim(), price: Number(t0.price) };
+      if (!t.code || !t.name || !t.supplier || isNaN(t.price) || t.price < 0) { res.skipped++; return; }
+      const i = prices.guides.findIndex((x) => x.id === t.id || x.code === t.code);
+      if (i >= 0 && !overwrite) return;
+      if (codeInUse(t.code, prices.guides[i])) { res.skipped++; return; }
+      if (i >= 0) { t.id = prices.guides[i].id; prices.guides[i] = t; } else prices.guides.push(t);
+      gUp.push(t); res.guides++;
     });
     (Array.isArray(d.quotes) ? d.quotes : []).forEach((q0) => {
       const q = JSON.parse(JSON.stringify(q0));
@@ -922,12 +1107,13 @@
     try {
       await Cloud.upsertTickets(tUp);
       await Cloud.upsertTransport(rUp);
+      await Cloud.upsertGuides(gUp);
       await Cloud.saveQuotes(qUp);
       if (takeSettings) await Cloud.saveSettings(Object.assign({}, DEFAULT_SETTINGS, d.settings));
     } finally {
       // Whatever happened, show what is really saved online now.
       const fresh = await Cloud.loadAll();
-      prices = fresh.prices; prices.tickets.forEach(fixTicket); quotes = fresh.quotes;
+      prices = fresh.prices; prices.tickets.forEach(fixTicket); prices.guides = prices.guides || []; quotes = fresh.quotes;
       settingsSaved = !!fresh.settings; settings = Object.assign({}, DEFAULT_SETTINGS, fresh.settings || {});
       applyBrand(); renderSettings(); renderPriceBadge(); refreshPickers();
     }
@@ -935,7 +1121,7 @@
   }
   function importSummary(r) {
     let t = 'Added ' + r.quotesAdded + ' quote(s)' + (r.quotesUpdated ? ', updated ' + r.quotesUpdated : '') +
-      ', and ' + r.tickets + ' ticket(s) and ' + r.transport + ' transport item(s) to the price list.';
+      ', and ' + r.tickets + ' ticket(s), ' + r.transport + ' transport item(s) and ' + r.guides + ' guide(s) to the price list.';
     if (r.renumbered.length) t += ' Quote numbers already in use were changed: ' + r.renumbered.join(', ') + '.';
     if (r.skipped) t += ' Skipped ' + r.skipped + ' item(s) with missing details.';
     return t;
@@ -1018,8 +1204,11 @@
     sample.forEach(([code, name, supplier, a, c]) => { if (!findTicket(code)) newT.push({ code, name, supplier, adultPrice: a, childPrice: c, price: a, validUntil: end, confirmedAt: today() }); });
     [['APU', 'Pickup from airport', 'Metro Transport', 45], ['APD', 'Drop off to airport', 'Metro Transport', 45], ['T7R', 'Transfer, 7 seater (2 way)', 'Metro Transport', 80], ['T7S', 'Transfer, 7 seater (1 way)', 'Metro Transport', 40]]
       .forEach(([code, name, supplier, price]) => { if (!prices.transport.some((t) => t.name === name) && !codeInUse(code)) newR.push({ id: uid(), code, name, supplier, price }); });
-    prices.tickets.push(...newT); prices.transport.push(...newR);
-    persist(Cloud.upsertTickets(newT).then(() => Cloud.upsertTransport(newR)), 'add the sample price list');
+    const newG = [];
+    [['GUSS', 'Universal Studios (full day)', 'City Guides', 180], ['GSEN', 'Sentosa (half day)', 'City Guides', 120], ['GCITY', 'City tour (full day)', 'City Guides', 200]]
+      .forEach(([code, name, supplier, price]) => { if (!codeInUse(code)) newG.push({ id: uid(), code, name, supplier, price }); });
+    prices.tickets.push(...newT); prices.transport.push(...newR); prices.guides.push(...newG);
+    persist(Cloud.upsertTickets(newT).then(() => Cloud.upsertTransport(newR)).then(() => Cloud.upsertGuides(newG)), 'add the sample price list');
     renderPriceBadge(); refreshPickers();
     setMsg('backupMsg', 'Sample price list added. Have a look in the Price list tab.', 'ok');
   });

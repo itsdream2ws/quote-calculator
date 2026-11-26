@@ -47,7 +47,7 @@
     <header class="page-head">
       <div>
         <h1 id="quoteHeading">New quote</h1>
-        <p class="page-sub">Plan it day by day: type ticket and transfer codes like a till, then add the hotel.</p>
+        <p class="page-sub">Plan it day by day: type ticket, transfer and guide codes like a till, add meals, then the hotel.</p>
       </div>
       <button id="clearBtn" class="btn">+ Start a new quote</button>
     </header>
@@ -56,6 +56,10 @@
       <div class="stack">
         <div class="card">
           <div class="card-title"><span class="step">1</span>Client</div>
+          <div class="qtype" role="radiogroup" aria-label="Quote type">
+            <label><input type="radio" name="qType" id="qTypeNormal" checked> Normal</label>
+            <label><input type="radio" name="qType" id="qTypeGroup"> Group <span class="hint">adds additional charges</span></label>
+          </div>
           <div class="row">
             <label class="grow">Client name *<input id="qClient" type="text" autocomplete="off" placeholder="e.g. Tan family"></label>
             <label class="paxbox">Adults *<input id="qAdults" type="number" min="0" step="1"></label>
@@ -66,7 +70,7 @@
         </div>
 
         <div class="card">
-          <div class="card-title"><span class="step">2</span>Day by day <span class="hint" style="margin-left:auto">attractions and transport, in order</span></div>
+          <div class="card-title"><span class="step">2</span>Day by day <span class="hint" style="margin-left:auto">attractions, transport, meals and guides, in order</span></div>
           <datalist id="ticketList"></datalist>
           <div id="days"></div>
           <button id="addDayBtn" class="btn add-day">+ Add day</button>
@@ -82,6 +86,18 @@
           </div>
           <button id="addHotelBtn" class="btn small-add">+ Add hotel</button>
         </div>
+
+        <div class="card hidden" id="additionalCard">
+          <div class="card-title"><span class="step">4</span>Additional charges <span class="hint" style="margin-left:auto">group quotes; pick one or type your own</span></div>
+          <datalist id="extraList"></datalist>
+          <div class="scroll">
+          <table class="lines hotel-table">
+            <thead><tr><th>Charge</th><th>Supplier <span class="hint">fill in to show on the supplier report</span></th><th class="num">Amount</th><th></th></tr></thead>
+            <tbody id="additionalRows"></tbody>
+          </table>
+          </div>
+          <button id="addExtraBtn" class="btn small-add">+ Add charge</button>
+        </div>
       </div>
 
       <aside class="summary sticky">
@@ -94,7 +110,9 @@
           <dl class="totals">
             <dt>Attractions</dt><dd id="tTickets">0.00</dd>
             <dt>Transport</dt><dd id="tTransport">0.00</dd>
+            <dt>Meals &amp; guides</dt><dd id="tMeals">0.00</dd>
             <dt>Hotel</dt><dd id="tHotel">0.00</dd>
+            <dt class="extra-total hidden">Additional charges</dt><dd class="extra-total hidden" id="tExtra">0.00</dd>
             <dt>Profit <span class="hint" id="profitHint"></span></dt><dd><input id="qService" type="number" min="0" step="0.01" class="inline-num" aria-label="Profit"><span id="tService" class="hidden"></span></dd>
           </dl>
           <div id="validation" class="errors hidden"></div>
@@ -138,7 +156,7 @@
   <!-- ============ PRICE LIST ============ -->
   <section id="view-prices" class="view hidden">
     <header class="page-head">
-      <div><h1>Price list</h1><p class="page-sub">Ticket prices need a valid-until date and a monthly confirm. Expired prices can't go on a quote until updated.</p></div>
+      <div><h1>Price list</h1><p class="page-sub">Tickets, transfers and guides, each with a code. Ticket prices need a valid-until date and a monthly confirm; expired prices can't go on a quote until updated.</p></div>
     </header>
     <div class="card">
       <div class="card-title">Tickets</div>
@@ -186,6 +204,29 @@
       <table class="list">
         <thead><tr><th>Code</th><th>Name</th><th>Supplier</th><th class="num">Price</th><th></th></tr></thead>
         <tbody id="transportPriceRows"></tbody>
+      </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Guides</div>
+      <p class="muted small">A guide price for each place or attraction, with a code you type on the quote page. On a quote you can still change the price, or use "+ Guide" for a one-off.</p>
+      <form id="guideForm" class="row wrap form-panel" novalidate>
+        <input type="hidden" id="gdEditing">
+        <label>Code *<input id="gdCode" maxlength="20" placeholder="GUSS"></label>
+        <label class="grow">Place or attraction *<input id="gdName" placeholder="e.g. Universal Studios (full day)"></label>
+        <label>Supplier *<input id="gdSupplier" list="supplierList"></label>
+        <label>Price *<input id="gdPrice" type="number" min="0" step="0.01"></label>
+        <div class="formbtns"><button class="btn primary" type="submit" id="gdSubmit">Add guide</button><button class="btn ghost hidden" type="button" id="gdCancel">Cancel</button></div>
+      </form>
+      <div id="gdMsg" class="msg"></div>
+      <div class="row toolbar">
+        <label class="grow">Filter<input id="gdFilter" type="search" placeholder="Code, place or supplier"></label>
+      </div>
+      <div class="scroll">
+      <table class="list">
+        <thead><tr><th>Code</th><th>Place or attraction</th><th>Supplier</th><th class="num">Price</th><th></th></tr></thead>
+        <tbody id="guidePriceRows"></tbody>
       </table>
       </div>
     </div>
