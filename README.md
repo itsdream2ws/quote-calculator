@@ -76,9 +76,9 @@ Delete their user and add them again with the same agent code and a new password
 ---
 
 ## What's in the app
-- **New quote:** client name, adults and children, quote date. Plan it day by day: type a ticket code (or part of the name) and press Enter, add transport, then hotels. Prices can be changed on each line. Totals and the profit / service charge update as you type. Saving checks every field first. Download as PDF or PNG, itemised or as a summary.
+- **New quote:** client name, adults and children, quote date. Plan it day by day: type a ticket or transfer code (or part of the name) and press Enter, add any custom transport, then hotels. Prices can be changed on each line. Totals and the profit / service charge update as you type. Saving checks every field first. Download as PDF or PNG, itemised or as a summary.
 - **Saved quotes:** search by client, quote number or agent, filter by date, re-download, edit, copy as a new quote, delete.
-- **Price list:** tickets with code, supplier, adult and child prices, valid-until date and a monthly confirm. Expired prices are blocked from quotes. Transport items with supplier and price.
+- **Price list:** tickets with code, supplier, adult and child prices, valid-until date and a monthly confirm. Expired prices are blocked from quotes. Transfers with code, supplier and price. A code can belong to one ticket or one transfer, not both.
 - **Supplier report:** every ticket, transport and hotel line with a travel date in the chosen month or dates, grouped by supplier, with CSV download and print.
 - **Settings:** business name and details on the quote, currency, default profit and how it shows to the client, footer, backups, your password.
 

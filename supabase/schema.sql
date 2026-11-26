@@ -42,7 +42,9 @@ create table public.transport_items (
   name       text not null,
   supplier   text not null,
   price      numeric(12,2) not null check (price >= 0),
-  updated_at timestamptz not null default now()
+  updated_at timestamptz not null default now(),
+  -- Typed in the quote page's code bar, like a ticket code. Optional for older items.
+  code       text unique check (code is null or (code <> '' and code = upper(code)))
 );
 
 -- Saved quotes. `data` holds the whole quote exactly as the app builds it
@@ -108,7 +110,7 @@ create view public.supplier_lines with (security_invoker = true) as
   union all
   select q.quote_number, q.quote_date, q.client_name,
          nullif(coalesce(l->>'travelDate', l->>'date'), '')::date,
-         'transport', null, l->>'description', l->>'supplier',
+         'transport', nullif(l->>'code', ''), l->>'description', l->>'supplier',
          coalesce((l->>'qty')::numeric, 0), null, null, (l->>'unitPrice')::numeric, null,
          coalesce((l->>'total')::numeric, (l->>'qty')::numeric * (l->>'unitPrice')::numeric)
     from public.quotes q

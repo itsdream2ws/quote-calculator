@@ -80,7 +80,11 @@
   }
   function daysBetween(a, b) { return Math.round((new Date(b + 'T00:00:00') - new Date(a + 'T00:00:00')) / 86400000); }
   const parseNum = (v) => (v === '' || v == null ? NaN : Number(v));
-  const findTicket = (code) => prices.tickets.find((t) => t.code === String(code).trim().toUpperCase());
+  const normCode = (code) => String(code == null ? '' : code).trim().toUpperCase().replace(/\s+/g, '');
+  const findTicket = (code) => prices.tickets.find((t) => t.code === normCode(code));
+  const findTransport = (code) => { const c = normCode(code); return c ? prices.transport.find((t) => t.code === c) : undefined; };
+  // A code may belong to one ticket or one transfer, never both.
+  const codeInUse = (code, except) => (findTicket(code) && findTicket(code) !== except) || (findTransport(code) && findTransport(code) !== except);
 
   // Price status for a ticket in the price list.
   function ticketStatus(t) {
@@ -111,7 +115,7 @@
   //   { id, quoteNumber, clientName, adults, children, date, notes, serviceCharge (= profit), itemised,
   //     days: [{ date, lines: [TicketLine | TransportLine] }], hotels: [{ description, supplier, amount }] }
   //   TicketLine    { type:'ticket', code, name, supplier, adults, children, adultPrice, childPrice }
-  //   TransportLine { type:'transport', description, supplier, qty, unitPrice }
+  //   TransportLine { type:'transport', code (optional), description, supplier, qty, unitPrice }
   const childPriceOf = (t) => (t.childPrice === '' || t.childPrice == null ? Number(t.adultPrice != null ? t.adultPrice : t.price) : Number(t.childPrice));
   const adultPriceOf = (t) => Number(t.adultPrice != null ? t.adultPrice : t.price);
   function addDays(iso, n) { const d = new Date(iso + 'T00:00:00'); d.setDate(d.getDate() + n); return isoDate(d); }
@@ -137,7 +141,7 @@
     const day = (d) => (byDate[d || ''] = byDate[d || ''] || { date: d || '', lines: [] });
     (c.tickets || []).forEach((l) => day(l.travelDate || l.date).lines.push({ type: 'ticket', code: l.code, name: l.name, supplier: l.supplier,
       adults: l.adults != null ? l.adults : l.pax, children: l.children || 0, adultPrice: l.adultPrice != null ? l.adultPrice : l.unitPrice, childPrice: l.childPrice != null ? l.childPrice : l.unitPrice }));
-    (c.transport || []).forEach((l) => day(l.travelDate || l.date).lines.push({ type: 'transport', description: l.description, supplier: l.supplier, qty: l.qty, unitPrice: l.unitPrice }));
+    (c.transport || []).forEach((l) => day(l.travelDate || l.date).lines.push({ type: 'transport', code: l.code || '', description: l.description, supplier: l.supplier, qty: l.qty, unitPrice: l.unitPrice }));
     const days = Object.keys(byDate).sort().map((k) => byDate[k]);
     const maxPax = Math.max(1, ...(c.tickets || []).map((l) => Number(l.pax) || 0));
     return { id: c.id, quoteNumber: c.quoteNumber, clientName: c.clientName || '', adults: c.adults != null ? c.adults : maxPax, children: c.children || 0,
@@ -164,13 +168,15 @@
 
   function refreshPickers() {
     $('ticketList').innerHTML = prices.tickets.map((t) => '<option value="' + esc(t.code) + '">' +
-      esc(t.code + ' — ' + t.name + ' (A ' + fmtNum(adultPriceOf(t)) + ' / C ' + fmtNum(childPriceOf(t)) + ')') + '</option>').join('');
+      esc(t.code + ' — ' + t.name + ' (A ' + fmtNum(adultPriceOf(t)) + ' / C ' + fmtNum(childPriceOf(t)) + ')') + '</option>').join('') +
+      prices.transport.filter((t) => t.code).map((t) => '<option value="' + esc(t.code) + '">' +
+      esc(t.code + ' — ' + t.name + ' (transfer ' + fmtNum(t.price) + ')') + '</option>').join('');
     const sup = new Set(); prices.tickets.forEach((t) => t.supplier && sup.add(t.supplier)); prices.transport.forEach((t) => t.supplier && sup.add(t.supplier));
     (draft.hotels || []).forEach((h) => h.supplier && sup.add(h.supplier));
     $('supplierList').innerHTML = [...sup].sort().map((s) => '<option value="' + esc(s) + '">').join('');
   }
   const transportOptions = () => '<option value="">Custom transport line</option>' + prices.transport
-    .map((t) => '<option value="' + esc(t.id) + '">' + esc(t.name + ' — ' + fmtNum(t.price)) + '</option>').join('');
+    .map((t) => '<option value="' + esc(t.id) + '">' + esc((t.code ? t.code + ' — ' : '') + t.name + ' — ' + fmtNum(t.price)) + '</option>').join('');
 
   function lineRow(l, d, i, n) {
     const key = ' data-d="' + d + '" data-l="' + i + '"';
@@ -187,7 +193,7 @@
         '<td class="amt" data-amt></td><td>' + del + '</td></tr>';
     }
     return '<tr class="ln transport"' + key + '><td>' + move + '</td>' +
-      '<td><span class="kind r">Transport</span><input data-f="description" placeholder="e.g. Transport from Night Safari (2 way)" value="' + esc(l.description) + '">' +
+      '<td><span class="kind r">Transport</span>' + (l.code ? '<b class="code tr-code">' + esc(l.code) + '</b>' : '') + '<input data-f="description" placeholder="e.g. Transport from Night Safari (2 way)" value="' + esc(l.description) + '">' +
       '<input class="sup" data-f="supplier" placeholder="Supplier" list="supplierList" value="' + esc(l.supplier) + '"></td>' +
       '<td><div class="pax2"><label>Qty<input class="n" type="number" min="1" step="1" data-f="qty" value="' + esc(l.qty) + '"></label></div></td>' +
       '<td><div class="pax2"><label>Price<input class="n price" type="number" min="0" step="0.01" data-f="unitPrice" value="' + esc(l.unitPrice) + '"></label></div></td>' +
@@ -204,11 +210,11 @@
         '<span class="day-sub" data-daysub="' + d + '"></span>' +
         '<button class="btn small ghost danger" data-act="del-day" data-d="' + d + '">Remove day</button></div>' +
         '<div class="scroll"><table class="lines day-lines"><tbody>' +
-          (day.lines.map((l, i) => lineRow(l, d, i, day.lines.length)).join('') || '<tr><td colspan="6" class="muted empty-day">Nothing on this day yet. Type a ticket code or add transport below.</td></tr>') +
+          (day.lines.map((l, i) => lineRow(l, d, i, day.lines.length)).join('') || '<tr><td colspan="6" class="muted empty-day">Nothing on this day yet. Type a ticket or transfer code, or add transport below.</td></tr>') +
         '</tbody></table></div>' +
         '<div class="day-add">' +
           '<div class="cashier"><svg class="cashier-icon" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>' +
-          '<input class="code-in" data-d="' + d + '" list="ticketList" placeholder="Ticket code or name, then Enter" autocomplete="off"></div>' +
+          '<input class="code-in" data-d="' + d + '" list="ticketList" placeholder="Ticket or transfer code, then Enter" autocomplete="off"></div>' +
           '<select class="tr-pick" data-d="' + d + '">' + topts + '</select>' +
           '<button class="btn" data-act="add-tr" data-d="' + d + '">+ Transport</button>' +
         '</div>' +
@@ -346,14 +352,23 @@
   const dayMsg = (d) => document.querySelector('[data-codemsg="' + d + '"]');
 
   function restoreCode(d, raw) { const el = document.querySelector('.code-in[data-d="' + d + '"]'); if (el) el.value = raw; }
+  function addTransportLine(d, t) {
+    draft.days[d].lines.push({ type: 'transport', code: t.code || '', description: t.name, supplier: t.supplier, qty: 1, unitPrice: round2(t.price) });
+    saveDraft(); renderDays(); updateTotals();
+    setMsg(dayMsg(d), 'Added ' + (t.code ? t.code + ' — ' : '') + t.name + '.', 'ok');
+  }
   function addByCode(d, raw) {
     raw = raw.trim(); if (!raw) return;
     let t = findTicket(raw);
-    if (!t) { // a unique part of the name also works
-      const m = prices.tickets.filter((x) => x.name.toLowerCase().includes(raw.toLowerCase()));
-      if (m.length === 1) t = m[0];
-      else { restoreCode(d, raw); setMsg(dayMsg(d), m.length ? 'More than one ticket matches "' + raw + '". Type the code.' : 'No ticket with code "' + raw + '".', 'err'); return; }
+    let tr = t ? null : findTransport(raw);
+    if (!t && !tr) { // a unique part of the name also works
+      const q = raw.toLowerCase();
+      const m = prices.tickets.filter((x) => x.name.toLowerCase().includes(q));
+      const mr = prices.transport.filter((x) => x.name.toLowerCase().includes(q));
+      if (m.length + mr.length === 1) { t = m[0]; tr = mr[0]; }
+      else { restoreCode(d, raw); setMsg(dayMsg(d), m.length + mr.length ? 'More than one ticket or transfer matches "' + raw + '". Type the code.' : 'No ticket or transfer with code "' + raw + '".', 'err'); return; }
     }
+    if (tr) { addTransportLine(d, tr); focusField('.code-in[data-d="' + d + '"]'); return; }
     const st = ticketStatus(t);
     if (st.level === 'bad') { restoreCode(d, raw); setMsg(dayMsg(d), t.code + ' price expired on ' + fmtDate(t.validUntil) + '. Update it in the price list first.', 'err'); return; }
     draft.days[d].lines.push({ type: 'ticket', code: t.code, name: t.name, supplier: t.supplier,
@@ -370,7 +385,7 @@
   $('days').addEventListener('input', (e) => {
     const t = e.target;
     // picking a ticket from the suggestion list adds it straight away
-    if (t.classList.contains('code-in')) { if ((!e.inputType || e.inputType === 'insertReplacementText') && findTicket(t.value)) takeCode(t); return; }
+    if (t.classList.contains('code-in')) { if ((!e.inputType || e.inputType === 'insertReplacementText') && (findTicket(t.value) || findTransport(t.value))) takeCode(t); return; }
     if (t.classList.contains('day-date')) {
       draft.days[t.dataset.d].date = t.value; saveDraft();
       const dow = t.parentNode.querySelector('.day-dow');
@@ -390,7 +405,7 @@
       case 'add-tr': {
         const sel = document.querySelector('.tr-pick[data-d="' + d + '"]');
         const t = prices.transport.find((x) => x.id === sel.value);
-        lines.push(t ? { type: 'transport', description: t.name, supplier: t.supplier, qty: 1, unitPrice: round2(t.price) }
+        lines.push(t ? { type: 'transport', code: t.code || '', description: t.name, supplier: t.supplier, qty: 1, unitPrice: round2(t.price) }
                      : { type: 'transport', description: '', supplier: '', qty: 1, unitPrice: '' });
         saveDraft(); renderDays(); updateTotals();
         focusField(lineSel(d, lines.length - 1, t ? 'unitPrice' : 'description'));
@@ -463,7 +478,7 @@
   function buildQuote(src, c) {
     const days = src.days.map((day) => ({ date: day.date, lines: day.lines.map((l) => l.type === 'ticket'
       ? { type: 'ticket', code: l.code, name: l.name, supplier: l.supplier, adults: Number(l.adults), children: Number(l.children), adultPrice: round2(l.adultPrice), childPrice: round2(l.childPrice), total: lineTotal(l) }
-      : { type: 'transport', description: String(l.description).trim(), supplier: String(l.supplier).trim(), qty: Number(l.qty), unitPrice: round2(l.unitPrice), total: lineTotal(l) }) }));
+      : { type: 'transport', code: l.code || '', description: String(l.description).trim(), supplier: String(l.supplier).trim(), qty: Number(l.qty), unitPrice: round2(l.unitPrice), total: lineTotal(l) }) }));
     const tickets = [], transport = [];
     days.forEach((day) => day.lines.forEach((l) => {
       if (l.type === 'ticket') {
@@ -471,7 +486,7 @@
         tickets.push({ code: l.code, name: l.name, supplier: l.supplier, travelDate: day.date, adults: l.adults, children: l.children,
           adultPrice: l.adultPrice, childPrice: l.childPrice, pax, unitPrice: pax ? round2(l.total / pax) : 0, total: l.total });
       } else {
-        transport.push({ description: l.description, supplier: l.supplier, date: day.date, travelDate: day.date, qty: l.qty, unitPrice: l.unitPrice, total: l.total });
+        transport.push({ code: l.code, description: l.description, supplier: l.supplier, date: day.date, travelDate: day.date, qty: l.qty, unitPrice: l.unitPrice, total: l.total });
       }
     }));
     return {
@@ -720,14 +735,17 @@
         '<button class="btn small ghost danger" data-tact="del" data-code="' + esc(t.code) + '">Delete</button></td></tr>';
     }).join('') || '<tr><td colspan="9" class="muted">No tickets yet. Add one above, or load the sample price list from Settings.</td></tr>';
 
-    $('transportPriceRows').innerHTML = prices.transport.slice().sort((a, b) => a.name.localeCompare(b.name)).map((t) =>
-      '<tr><td>' + esc(t.name) + '</td><td>' + esc(t.supplier) + '</td><td class="num">' + fmtNum(t.price) + '</td>' +
+    const tf = $('trFilter').value.trim().toLowerCase();
+    $('transportPriceRows').innerHTML = prices.transport.slice().sort((a, b) => (a.code || '~' + a.name).localeCompare(b.code || '~' + b.name))
+      .filter((t) => !tf || ((t.code || '') + ' ' + t.name + ' ' + t.supplier).toLowerCase().includes(tf)).map((t) =>
+      '<tr><td>' + (t.code ? '<b>' + esc(t.code) + '</b>' : '<span class="pill warn">Add a code</span>') + '</td><td>' + esc(t.name) + '</td><td>' + esc(t.supplier) + '</td><td class="num">' + fmtNum(t.price) + '</td>' +
       '<td class="actions"><button class="btn small" data-ract="edit" data-id="' + esc(t.id) + '">Edit</button> ' +
       '<button class="btn small ghost danger" data-ract="del" data-id="' + esc(t.id) + '">Delete</button></td></tr>'
-    ).join('') || '<tr><td colspan="4" class="muted">No transport items yet.</td></tr>';
+    ).join('') || '<tr><td colspan="5" class="muted">No transport items yet.</td></tr>';
     renderPriceBadge();
   }
   $('tfFilter').addEventListener('input', renderPrices);
+  $('trFilter').addEventListener('input', renderPrices);
 
   function resetTicketForm() {
     $('ticketForm').reset(); $('tfEditing').value = '';
@@ -745,7 +763,7 @@
     if (isNaN(price) || price < 0) return setMsg('tfMsg', 'Adult price must be 0 or more.', 'err');
     if (isNaN(child) || child < 0) return setMsg('tfMsg', 'Child price must be 0 or more (or leave it blank).', 'err');
     if (!isValidDate(validUntil)) return setMsg('tfMsg', 'Enter a valid "valid until" date.', 'err');
-    if (code !== editing && findTicket(code)) return setMsg('tfMsg', 'Code ' + code + ' is already used by another ticket.', 'err');
+    if (code !== editing && codeInUse(code)) return setMsg('tfMsg', 'Code ' + code + ' is already used by ' + (findTicket(code) ? 'another ticket' : 'a transfer') + '.', 'err');
     const item = { code, name, supplier, adultPrice: round2(price), childPrice: round2(child), price: round2(price), validUntil, confirmedAt: today() };
     if (editing) {
       const i = prices.tickets.findIndex((t) => t.code === editing);
@@ -784,13 +802,16 @@
   $('trCancel').addEventListener('click', resetTransportForm);
   $('transportForm').addEventListener('submit', (e) => {
     e.preventDefault();
+    const code = normCode($('trCode').value);
     const name = $('trName').value.trim(), supplier = $('trSupplier').value.trim(), price = parseNum($('trPrice').value);
-    if (!name || !supplier) return setMsg('trMsg', 'Name and supplier are required.', 'err');
+    if (!code || !name || !supplier) return setMsg('trMsg', 'Code, name and supplier are required.', 'err');
     if (isNaN(price) || price < 0) return setMsg('trMsg', 'Price must be 0 or more.', 'err');
     const id = $('trEditing').value;
+    const current = id ? prices.transport.find((t) => t.id === id) : null;
+    if (codeInUse(code, current)) return setMsg('trMsg', 'Code ' + code + ' is already used by ' + (findTicket(code) ? 'a ticket' : 'another transfer') + '.', 'err');
     let item;
-    if (id) item = Object.assign(prices.transport.find((t) => t.id === id), { name, supplier, price: round2(price) });
-    else prices.transport.push(item = { id: uid(), name, supplier, price: round2(price) });
+    if (current) item = Object.assign(current, { code, name, supplier, price: round2(price) });
+    else prices.transport.push(item = { id: uid(), code, name, supplier, price: round2(price) });
     persist(Cloud.upsertTransport([item]), 'save transport item ' + name);
     resetTransportForm(); renderPrices(); setMsg('trMsg', (id ? 'Updated ' : 'Added ') + name + '.', 'ok');
   });
@@ -798,7 +819,7 @@
     const b = e.target.closest('button[data-ract]'); if (!b) return;
     const t = prices.transport.find((x) => x.id === b.dataset.id); if (!t) return;
     if (b.dataset.ract === 'edit') {
-      $('trEditing').value = t.id; $('trName').value = t.name; $('trSupplier').value = t.supplier; $('trPrice').value = t.price;
+      $('trEditing').value = t.id; $('trCode').value = t.code || ''; $('trName').value = t.name; $('trSupplier').value = t.supplier; $('trPrice').value = t.price;
       $('trSubmit').textContent = 'Save changes'; $('trCancel').classList.remove('hidden'); $('trPrice').focus();
     }
     if (b.dataset.ract === 'del' && confirm('Delete transport item "' + t.name + '"?')) {
@@ -871,9 +892,10 @@
       tUp.push(t); res.tickets++;
     });
     ((d.prices && d.prices.transport) || []).forEach((t0) => {
-      const t = { id: t0.id || uid(), name: String(t0.name || '').trim(), supplier: String(t0.supplier || '').trim(), price: Number(t0.price) };
+      const t = { id: t0.id || uid(), code: normCode(t0.code), name: String(t0.name || '').trim(), supplier: String(t0.supplier || '').trim(), price: Number(t0.price) };
       if (!t.name || !t.supplier || isNaN(t.price) || t.price < 0) { res.skipped++; return; }
       const i = prices.transport.findIndex((x) => x.id === t.id || (x.name === t.name && x.supplier === t.supplier));
+      if (t.code && codeInUse(t.code, prices.transport[i])) t.code = ''; // clashing code: leave it to be set by hand
       if (i >= 0 && !overwrite) return;
       if (i >= 0) { t.id = prices.transport[i].id; prices.transport[i] = t; } else prices.transport.push(t);
       rUp.push(t); res.transport++;
@@ -994,8 +1016,8 @@
     ];
     const newT = [], newR = [];
     sample.forEach(([code, name, supplier, a, c]) => { if (!findTicket(code)) newT.push({ code, name, supplier, adultPrice: a, childPrice: c, price: a, validUntil: end, confirmedAt: today() }); });
-    [['Pickup from airport', 'Metro Transport', 45], ['Drop off to airport', 'Metro Transport', 45], ['Transfer, 7 seater (2 way)', 'Metro Transport', 80], ['Transfer, 7 seater (1 way)', 'Metro Transport', 40]]
-      .forEach(([name, supplier, price]) => { if (!prices.transport.some((t) => t.name === name)) newR.push({ id: uid(), name, supplier, price }); });
+    [['APU', 'Pickup from airport', 'Metro Transport', 45], ['APD', 'Drop off to airport', 'Metro Transport', 45], ['T7R', 'Transfer, 7 seater (2 way)', 'Metro Transport', 80], ['T7S', 'Transfer, 7 seater (1 way)', 'Metro Transport', 40]]
+      .forEach(([code, name, supplier, price]) => { if (!prices.transport.some((t) => t.name === name) && !codeInUse(code)) newR.push({ id: uid(), code, name, supplier, price }); });
     prices.tickets.push(...newT); prices.transport.push(...newR);
     persist(Cloud.upsertTickets(newT).then(() => Cloud.upsertTransport(newR)), 'add the sample price list');
     renderPriceBadge(); refreshPickers();
