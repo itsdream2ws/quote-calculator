@@ -1,5 +1,7 @@
 # Quote Calculator
 
+**Open the app:** https://itsdream2ws.github.io/quote-calculator/
+
 A web app for making travel quotes (SGD): a price list of tickets and transport, a day-by-day quote page laid out like the spreadsheet, PDF/PNG download, saved quotes, and a supplier report by travel date to check supplier invoices.
 
 Everything is saved online in Supabase, so every agent in the company sees the same quotes, price list and report. Each agent logs in with their own **agent code** (like `AG01`) and password. Nobody can see or change anything without logging in.
