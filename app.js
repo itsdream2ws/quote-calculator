@@ -39,11 +39,11 @@
   // Log in, then read everything from the online database.
   await Cloud.requireLogin();
   Cloud.showLoading('Loading your quotes and price list…');
-  let prices, quotes, settings, settingsSaved;
+  let prices, quotes, settings, settingsSaved, invoicesLoaded = [], profilesLoaded = {};
   for (;;) {
     try {
       const d = await Cloud.loadAll();
-      prices = d.prices; quotes = d.quotes;
+      prices = d.prices; quotes = d.quotes; invoicesLoaded = d.invoices || []; profilesLoaded = d.profiles || {};
       settingsSaved = !!d.settings;
       settings = Object.assign({}, DEFAULT_SETTINGS, d.settings || {});
       break;
@@ -108,6 +108,8 @@
     if (name === 'prices') renderPrices();
     if (name === 'settings') renderSettings();
     if (name === 'quote') { refreshPickers(); renderQuote(); }
+    if (name === 'invoice') Invoice.show();
+    window.scrollTo(0, 0);
     try { history.replaceState(null, '', '#' + name); } catch (e) {}
   }
   document.querySelectorAll('button.tab').forEach((b) => b.addEventListener('click', () => showView(b.dataset.view)));
@@ -746,16 +748,39 @@
     document.body.appendChild(a); a.click(); a.remove();
   }
 
-  async function exportQuote(q, kind, itemised) {
+  const exportQuote = (q, kind, itemised) => exportPaper(paperHTML(q, itemised), kind, fileBase(q) + (itemised ? '' : '_summary'));
+
+  // A4 is 210 × 297 mm; the paper is drawn 794 px wide, so one page is about 1123 px tall.
+  // With avoidSplit, rows and blocks marked .keep that would be cut by a page break are pushed
+  // to the next page, so no line of text is cut in half in the PDF.
+  function keepOffPageBreaks(el) {
+    const page = el.offsetWidth * 297 / 210, top0 = el.getBoundingClientRect().top;
+    const items = [...el.querySelectorAll('tbody tr, .keep')];
+    for (const it of items) {
+      const r = it.getBoundingClientRect(), t = r.top - top0, b = r.bottom - top0;
+      if (r.height >= page - 80) continue;
+      const brk = Math.ceil(t / page) * page;
+      if (b > brk - 2 && t < brk) {
+        const push = brk - t + 36;
+        if (it.tagName === 'TR') {
+          const sp = document.createElement('tr'); sp.className = 'pg-space';
+          sp.innerHTML = '<td colspan="20" style="height:' + push + 'px;padding:0;border:0;background:#fff"></td>';
+          it.parentNode.insertBefore(sp, it);
+        } else it.style.marginTop = (parseFloat(getComputedStyle(it).marginTop) || 0) + push + 'px';
+      }
+    }
+  }
+  async function exportPaper(html, kind, name, opts) {
+    opts = opts || {};
     const stage = document.createElement('div');
     stage.style.cssText = 'position:absolute;left:-10000px;top:0;';
-    stage.innerHTML = '<div class="paper">' + paperHTML(q, itemised) + '</div>';
+    stage.innerHTML = '<div class="paper ' + (opts.paperClass || '') + '">' + html + '</div>';
     document.body.appendChild(stage);
     const el = stage.firstChild;
     if (kind === 'png') el.style.minHeight = '0'; // PNG: crop to content; PDF keeps a full A4 page
     try {
+      if (kind === 'pdf' && opts.avoidSplit) keepOffPageBreaks(el);
       const canvas = await window.html2canvas(el, { scale: 2, backgroundColor: '#ffffff', useCORS: true });
-      const name = fileBase(q) + (itemised ? '' : '_summary');
       if (kind === 'png') {
         download(canvas.toDataURL('image/png'), name + '.png');
       } else {
@@ -781,12 +806,13 @@
   function openPreview(q, saved) {
     previewQuote = q; previewSaved = saved;
     $('pvItemised').checked = q.itemised !== false;
-    $('paper').innerHTML = paperHTML(q, $('pvItemised').checked);
+    $('previewModal').classList.remove('hidden');
+    $('paper').innerHTML = paperHTML(q, $('pvItemised').checked); fitPaper($('paper'));
     $('pvPdf').disabled = $('pvPng').disabled = !saved;
     $('pvPdf').title = $('pvPng').title = saved ? '' : 'Save the quote first';
     $('previewModal').classList.remove('hidden');
   }
-  $('pvItemised').addEventListener('change', () => { $('paper').innerHTML = paperHTML(previewQuote, $('pvItemised').checked); });
+  $('pvItemised').addEventListener('change', () => { $('paper').innerHTML = paperHTML(previewQuote, $('pvItemised').checked); fitPaper($('paper')); });
   $('pvClose').addEventListener('click', () => $('previewModal').classList.add('hidden'));
   $('previewModal').addEventListener('click', (e) => { if (e.target.id === 'previewModal') $('previewModal').classList.add('hidden'); });
   $('pvPdf').addEventListener('click', () => previewSaved && exportQuote(previewQuote, 'pdf', $('pvItemised').checked));
@@ -1015,7 +1041,7 @@
     e.preventDefault();
     const sc = parseNum($('stService').value);
     if (isNaN(sc) || sc < 0) { setMsg('settingsMsg', 'Profit must be 0 or more.', 'err'); return; }
-    settings = { businessName: $('stBusiness').value.trim(), businessDetails: $('stDetails').value.trim(), currency: $('stCurrency').value.trim(), defaultServiceCharge: round2(sc), footer: $('stFooter').value.trim(), profitDisplay: $('stProfit').value };
+    settings = Object.assign({}, settings, { businessName: $('stBusiness').value.trim(), businessDetails: $('stDetails').value.trim(), currency: $('stCurrency').value.trim(), defaultServiceCharge: round2(sc), footer: $('stFooter').value.trim(), profitDisplay: $('stProfit').value });
     applyBrand();
     if (!draft.id && !draft.hotels.length && !draft.days.some((d) => d.lines.length)) { draft.serviceCharge = settings.defaultServiceCharge; saveDraft(); }
     setMsg('settingsMsg', 'Saving…');
@@ -1039,7 +1065,7 @@
 
   // ---------- backup, restore and importing old data ----------
   $('backupBtn').addEventListener('click', () => {
-    const data = { app: 'quote-calculator', version: 1, exportedAt: new Date().toISOString(), settings, prices, quotes };
+    const data = { app: 'quote-calculator', version: 1, exportedAt: new Date().toISOString(), settings, prices, quotes, invoices: Invoice.list() };
     const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
     download(url, 'quote-calculator-backup-' + today() + '.json');
     setTimeout(() => URL.revokeObjectURL(url), 5000);
@@ -1053,7 +1079,7 @@
   //    transport name and supplier) are replaced only when `overwrite` is true (restoring a backup).
   //  - Settings: taken from the file when `overwrite` is true or nothing has been saved online yet.
   async function importData(d, overwrite) {
-    const res = { quotesAdded: 0, quotesUpdated: 0, renumbered: [], tickets: 0, transport: 0, guides: 0, skipped: 0 };
+    const res = { invoices: null, quotesAdded: 0, quotesUpdated: 0, renumbered: [], tickets: 0, transport: 0, guides: 0, skipped: 0 };
     const tUp = [], rUp = [], qUp = [];
     ((d.prices && d.prices.tickets) || []).forEach((t0) => {
       const t = fixTicket(Object.assign({}, t0));
@@ -1109,12 +1135,14 @@
       await Cloud.upsertTransport(rUp);
       await Cloud.upsertGuides(gUp);
       await Cloud.saveQuotes(qUp);
+      if (Array.isArray(d.invoices)) res.invoices = await Invoice.importList(d.invoices);
       if (takeSettings) await Cloud.saveSettings(Object.assign({}, DEFAULT_SETTINGS, d.settings));
     } finally {
       // Whatever happened, show what is really saved online now.
       const fresh = await Cloud.loadAll();
       prices = fresh.prices; prices.tickets.forEach(fixTicket); prices.guides = prices.guides || []; quotes = fresh.quotes;
       settingsSaved = !!fresh.settings; settings = Object.assign({}, DEFAULT_SETTINGS, fresh.settings || {});
+      Invoice.setList(fresh.invoices, fresh.profiles);
       applyBrand(); renderSettings(); renderPriceBadge(); refreshPickers();
     }
     return res;
@@ -1122,6 +1150,7 @@
   function importSummary(r) {
     let t = 'Added ' + r.quotesAdded + ' quote(s)' + (r.quotesUpdated ? ', updated ' + r.quotesUpdated : '') +
       ', and ' + r.tickets + ' ticket(s), ' + r.transport + ' transport item(s) and ' + r.guides + ' guide(s) to the price list.';
+    if (r.invoices) t += ' Invoices: ' + r.invoices.added + ' added' + (r.invoices.updated ? ', ' + r.invoices.updated + ' updated' : '') + '.' + (r.invoices.renumbered.length ? ' Invoice numbers already in use were changed: ' + r.invoices.renumbered.join(', ') + '.' : '');
     if (r.renumbered.length) t += ' Quote numbers already in use were changed: ' + r.renumbered.join(', ') + '.';
     if (r.skipped) t += ' Skipped ' + r.skipped + ' item(s) with missing details.';
     return t;
@@ -1213,8 +1242,31 @@
     setMsg('backupMsg', 'Sample price list added. Have a look in the Price list tab.', 'ok');
   });
 
+  // ============================================================
+  //                 PROFORMA INVOICE + MOBILE
+  // ============================================================
+  // Phones: the A4 paper (794 px wide) is shrunk to fit the screen in the preview.
+  function fitPaper(paper) {
+    const wrap = paper.parentElement;
+    paper.style.zoom = '';
+    const avail = wrap.clientWidth - (parseFloat(getComputedStyle(wrap).paddingLeft) || 0) * 2;
+    if (avail > 0 && avail < paper.offsetWidth) paper.style.zoom = String(avail / paper.offsetWidth);
+  }
+  window.addEventListener('resize', () => document.querySelectorAll('.modal:not(.hidden) .paper').forEach(fitPaper));
+
+  const Invoice = window.InvoiceModule({
+    $, esc, fmtNum, round2, uid, today, isValidDate, fmtDate, parseNum, setMsg, persist, exportPaper, fitPaper,
+    settings: () => settings, agent: () => Cloud.agent, invoices: invoicesLoaded, profiles: profilesLoaded
+  });
+
+  // Phone bottom bar on the quote page: total, Save, and a jump to the full summary.
+  $('mQuoteSave').addEventListener('click', saveCurrent);
+  document.querySelectorAll('[data-goto]').forEach((b) => b.addEventListener('click', () => $(b.dataset.goto).scrollIntoView({ behavior: 'smooth', block: 'start' })));
+  new MutationObserver(() => { $('mQuoteTotal').textContent = $('tGrand').textContent; }).observe($('tGrand'), { childList: true, characterData: true, subtree: true });
+
   // ---------------- start ----------------
   applyBrand(); refreshPickers(); renderQuote(); renderPriceBadge();
+  $('mQuoteTotal').textContent = $('tGrand').textContent;
   const startView = location.hash.slice(1);
-  if (['saved', 'prices', 'settings'].includes(startView)) showView(startView);
+  if (['saved', 'prices', 'settings', 'invoice'].includes(startView)) showView(startView);
 })();

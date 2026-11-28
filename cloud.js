@@ -7,6 +7,9 @@
  *   guide_items      one row per guide price (a guide for a place or attraction)
  *   quotes           one row per saved quote; `data` holds the whole quote as the app builds it
  *   settings         a single row (id 1); `data` holds the settings object
+ *   invoices         one row per proforma invoice / general quote; `data` holds the whole invoice
+ *   agent_profiles   one row per login: that agent's invoice letterhead (logo, company details).
+ *                    Everyone signed in can read them; only the owner can change their own row.
  * The app keeps working with the same objects as before (see DATA_FORMAT.md); this file
  * converts them to and from table rows.
  */
@@ -146,6 +149,8 @@ window.Cloud = (function () {
   const rowToGuide = (r) => ({ id: r.id, code: r.code, name: r.name, supplier: r.supplier, price: Number(r.price) });
   const quoteToRow = (q) => ({ id: q.id, quote_number: q.quoteNumber, quote_date: q.date, client_name: q.clientName || '', total: num(q.total), data: q });
   const rowToQuote = (r) => Object.assign({}, r.data, { id: r.id, quoteNumber: r.quote_number });
+  const invoiceToRow = (v) => ({ id: v.id, invoice_number: v.invoiceNumber, invoice_date: v.date, client_name: (v.billTo && v.billTo.name) || '', total: num(v.total), data: v });
+  const rowToInvoice = (r) => Object.assign({}, r.data, { id: r.id, invoiceNumber: r.invoice_number });
 
   // Supabase returns at most 1000 rows per request, so read in pages.
   async function fetchAll(table, order) {
@@ -162,12 +167,13 @@ window.Cloud = (function () {
 
   // ---------- data ----------
   async function loadQuotes() { return (await fetchAll('quotes', 'id')).map(rowToQuote); }
+  async function loadInvoices() { return (await fetchAll('invoices', 'id')).map(rowToInvoice); }
   async function loadAll() {
-    const [tickets, transport, guides, quotes, settingsRows] = await Promise.all([
-      fetchAll('tickets', 'code'), fetchAll('transport_items', 'id'), fetchAll('guide_items', 'code'), loadQuotes(),
+    const [tickets, transport, guides, quotes, invoices, profiles, settingsRows] = await Promise.all([
+      fetchAll('tickets', 'code'), fetchAll('transport_items', 'id'), fetchAll('guide_items', 'code'), loadQuotes(), loadInvoices(), loadProfiles(),
       sb.from('settings').select('data').eq('id', 1).then((r) => { if (r.error) throw r.error; return r.data; })
     ]);
-    return { prices: { tickets: tickets.map(rowToTicket), transport: transport.map(rowToTransport), guides: guides.map(rowToGuide) }, quotes,
+    return { prices: { tickets: tickets.map(rowToTicket), transport: transport.map(rowToTransport), guides: guides.map(rowToGuide) }, quotes, invoices, profiles,
       settings: settingsRows.length ? settingsRows[0].data : null };
   }
   async function loadSettings() {
@@ -184,6 +190,15 @@ window.Cloud = (function () {
   const saveQuote = async (q) => check(await sb.from('quotes').upsert(quoteToRow(q), { onConflict: 'id' }));
   const saveQuotes = (list) => inChunks(list, 100, async (c) => check(await sb.from('quotes').upsert(c.map(quoteToRow), { onConflict: 'id' })));
   const deleteQuote = async (id) => check(await sb.from('quotes').delete().eq('id', id));
+  const saveInvoice = async (v) => check(await sb.from('invoices').upsert(invoiceToRow(v), { onConflict: 'id' }));
+  const saveInvoices = (list) => inChunks(list, 100, async (c) => check(await sb.from('invoices').upsert(c.map(invoiceToRow), { onConflict: 'id' })));
+  const deleteInvoice = async (id) => check(await sb.from('invoices').delete().eq('id', id));
+  // Agent letterheads, keyed by agent code ("AG01"); the database fills in user_id and email from the login.
+  async function loadProfiles() {
+    const rows = await fetchAll('agent_profiles', 'user_id');
+    const out = {}; rows.forEach((r) => { out[agentOf(r.email)] = r.data || {}; }); return out;
+  }
+  const saveMyProfile = async (data) => check(await sb.from('agent_profiles').upsert({ user_id: user.id, data }, { onConflict: 'user_id' }));
   const saveSettings = async (s) => check(await sb.from('settings').upsert({ id: 1, data: s }, { onConflict: 'id' }));
 
   return {
@@ -191,6 +206,6 @@ window.Cloud = (function () {
     get email() { return user ? user.email : ''; },
     get agent() { return user ? agentOf(user.email) : ''; },
     loadAll, loadQuotes, loadSettings, upsertTickets, deleteTicket, upsertTransport, deleteTransport, upsertGuides, deleteGuide,
-    saveQuote, saveQuotes, deleteQuote, saveSettings
+    saveQuote, saveQuotes, deleteQuote, saveSettings, loadInvoices, saveInvoice, saveInvoices, deleteInvoice, loadProfiles, saveMyProfile
   };
 })();
