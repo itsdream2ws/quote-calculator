@@ -79,12 +79,14 @@ Delete their user and add them again with the same agent code and a new password
 - **New quote:** choose **Normal** or **Group**, then client name, adults and children, quote date. Plan it day by day: type a ticket, transfer or guide code (or part of the name) and press Enter. Add breakfast, lunch or dinner (priced per adult and child) and one-off guides with the buttons under each day. Then add hotels, and on a Group quote any additional charges (pick a common one or type your own). Prices can be changed on each line. Totals and the profit / service charge update as you type. Saving checks every field first. Download as PDF or PNG, itemised or as a summary.
 - **Saved quotes:** search by client, quote number or agent, filter by date, re-download, edit, copy as a new quote, delete.
 - **Price list:** tickets with code, supplier, adult and child prices, valid-until date and a monthly confirm. Expired prices are blocked from quotes. Transfers with code, supplier and price. Guides with code, place or attraction, supplier and price. Each code belongs to one ticket, transfer or guide only.
+- **Proforma invoice:** a general quote or proforma invoice for anything, not only travel. Upload your company logo once (it is saved online to your agent login, so it is there on any device), fill in your company and the client, write each line yourself with a quantity and unit price, add a discount and GST if needed, then save and download a PDF or PNG, itemised or without prices per line. The title can be changed to Quotation, Estimate or anything else. Saved invoices are listed under the form, with search, edit, copy and delete. They are kept apart from the travel quotes and are not on the supplier report.
+- **On a phone:** every page works on a phone. The menu sits along the top, lists turn into cards, the quote and invoice pages show the total and a Save button at the bottom, and the preview shrinks the page to fit the screen.
 - **Supplier report:** every ticket, transport, meal, guide and hotel line (and group additional charges that have a supplier) with a travel date in the chosen month or dates, grouped by supplier, with CSV download and print.
 - **Settings:** business name and details on the quote, currency, default profit and how it shows to the client, footer, backups, your password.
 
 The quote you are in the middle of typing is kept in your browser, so a refresh doesn't lose it. It goes online when you click **Save quote**.
 
-You can also look at the data in Supabase: **Table Editor** shows `quotes`, `tickets`, `transport_items` and `settings`. The `supplier_lines` view lists every saved line with its travel date.
+You can also look at the data in Supabase: **Table Editor** shows `quotes`, `invoices`, `agent_profiles` (each agent's logo and letterhead), `tickets`, `transport_items` and `settings`. The `supplier_lines` view lists every saved line with its travel date.
 
 ---
 
@@ -96,6 +98,8 @@ Plain HTML, CSS and JavaScript with no build step and no server.
 |---|---|
 | `index.html`, `app.js`, `styles.css` | The app |
 | `report.html`, `supplier-report.js` | Supplier report (`supplier-report.js` is pure functions, tested by `tests/test-report.js`) |
+| `invoice.js` | Proforma invoice page (letterhead, lines, totals, saved invoices, PDF/PNG) |
+| `mobile.js` | Labels table cells so lists show as cards on phones |
 | `cloud.js` | Login screen and all reading and writing to Supabase |
 | `config.js` | Supabase project URL, publishable key and the agent email domain |
 | `supabase/schema.sql` | Tables, row level security and the `supplier_lines` view (already applied to the live project) |

@@ -22,19 +22,22 @@
       </div>
     </div>
     <nav class="nav">
-      <button class="tab active" data-view="quote">
+      <button class="tab active" data-view="quote" data-short="Quote">
         <svg viewBox="0 0 24 24"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M12 12v6M9 15h6"/></svg>
         <span>New quote</span></button>
-      <button class="tab" data-view="saved">
+      <button class="tab" data-view="saved" data-short="Saved">
         <svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
         <span>Saved quotes</span></button>
-      <button class="tab" data-view="prices">
+      <button class="tab" data-view="prices" data-short="Prices">
         <svg viewBox="0 0 24 24"><path d="M3 12V4a1 1 0 0 1 1-1h8l9 9-9 9z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg>
         <span>Price list</span><span id="priceAlertBadge" class="badge hidden"></span></button>
-      <a class="tab" href="report.html">
+      <button class="tab" data-view="invoice" data-short="Invoice">
+        <svg viewBox="0 0 24 24"><path d="M6 2h9l5 5v13a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2z"/><path d="M14 2v6h6M8 13h8M8 17h5"/></svg>
+        <span>Proforma invoice</span></button>
+      <a class="tab" href="report.html" data-short="Report">
         <svg viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>
         <span>Supplier report</span></a>
-      <button class="tab" data-view="settings">
+      <button class="tab" data-view="settings" data-short="Settings">
         <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
         <span>Settings</span></button>
     </nav>
@@ -100,7 +103,7 @@
         </div>
       </div>
 
-      <aside class="summary sticky">
+      <aside class="summary sticky" id="quoteSummary">
         <div class="total-hero">
           <div class="total-label">Quote total</div>
           <div class="total-value" id="tGrand">0.00</div>
@@ -130,6 +133,7 @@
         </div>
       </aside>
     </div>
+    <div class="mobile-bar" id="quoteMobileBar"><div><span>Quote total</span><b id="mQuoteTotal">0.00</b></div><button id="mQuoteSave" class="btn primary">Save</button><button type="button" class="btn" data-goto="quoteSummary">More</button></div>
   </section>
 
   <!-- ============ SAVED QUOTES ============ -->
@@ -232,6 +236,114 @@
     </div>
   </section>
 
+  <!-- ============ PROFORMA INVOICE ============ -->
+  <section id="view-invoice" class="view hidden">
+    <header class="page-head">
+      <div>
+        <h1 id="invHeading">New proforma invoice</h1>
+        <p class="page-sub">A general quote or proforma invoice for anything: your logo, lines you write yourself, totals, PDF or PNG.</p>
+      </div>
+      <button id="invNewBtn" class="btn">+ Start a new invoice</button>
+    </header>
+
+    <div class="grid2">
+      <div class="stack">
+        <div class="card">
+          <div class="card-title"><span class="step">1</span>Your company <span class="hint" style="margin-left:auto">saved to your agent login</span></div>
+          <div class="logo-box">
+            <div id="invLogoPreview" class="logo-preview"><span>No logo yet</span></div>
+            <div class="logo-actions">
+              <label class="btn filebtn">Upload logo<input id="invLogoInput" type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml"></label>
+              <button id="invLogoRemove" type="button" class="btn ghost danger hidden">Remove logo</button>
+              <p class="muted small">PNG with a transparent background looks best. It is saved online to your login, so it is there next time on any device.</p>
+            </div>
+          </div>
+          <label>Company name *<input id="invCoName" autocomplete="organization" placeholder="e.g. Horeb Tours Pte Ltd"></label>
+          <label>Company details <span class="hint">address, phone, email, registration no.</span><textarea id="invCoDetails" rows="3"></textarea></label>
+          <div class="co-save"><button id="invCoSave" type="button" class="btn">Save as my default letterhead</button><span id="invCoMsg" class="msg"></span></div>
+          <p class="muted small">Saves the company name and details, payment details, terms and tax for your next invoices.</p>
+        </div>
+
+        <div class="card">
+          <div class="card-title"><span class="step">2</span>Document</div>
+          <datalist id="invTitleList"><option value="PROFORMA INVOICE"><option value="QUOTATION"><option value="ESTIMATE"><option value="INVOICE"></datalist>
+          <div class="row">
+            <label>Title<input id="invTitle" list="invTitleList" placeholder="PROFORMA INVOICE"></label>
+            <label>Number *<input id="invNumber" autocomplete="off"></label>
+          </div>
+          <div class="row">
+            <label>Date *<input id="invDate" type="date"></label>
+            <label>Valid until <span class="hint">optional</span><input id="invValid" type="date"></label>
+          </div>
+          <label>Reference / subject <span class="hint">optional</span><input id="invRef" placeholder="e.g. Bangkok group tour, 12 to 16 Dec"></label>
+        </div>
+
+        <div class="card">
+          <div class="card-title"><span class="step">3</span>Bill to</div>
+          <label>Client name *<input id="invClient" autocomplete="off" placeholder="Person or company"></label>
+          <label>Client details <span class="hint">optional</span><textarea id="invClientDetails" rows="3" placeholder="Address, phone, email"></textarea></label>
+        </div>
+
+        <div class="card">
+          <div class="card-title"><span class="step">4</span>Lines <span class="hint" style="margin-left:auto">write anything; amount = qty × unit price</span></div>
+          <div id="invItems"></div>
+          <button id="invAddItem" type="button" class="btn add-day">+ Add line</button>
+        </div>
+
+        <div class="card">
+          <div class="card-title"><span class="step">5</span>Notes, payment and terms</div>
+          <label>Notes <span class="hint">optional</span><textarea id="invNotes" rows="2"></textarea></label>
+          <label>Payment details <span class="hint">optional</span><textarea id="invPayment" rows="3" placeholder="Bank, account name, account number, PayNow UEN"></textarea></label>
+          <label>Terms <span class="hint">optional</span><textarea id="invTerms" rows="2"></textarea></label>
+        </div>
+      </div>
+
+      <aside class="summary sticky" id="invSummary">
+        <div class="total-hero">
+          <div class="total-label">Total</div>
+          <div class="total-value" id="invGrand">0.00</div>
+          <div class="total-pax" id="invHeroSub"></div>
+        </div>
+        <div class="summary-body">
+          <dl class="totals">
+            <dt>Subtotal</dt><dd id="invSub">0.00</dd>
+            <dt>Discount</dt><dd><input id="invDiscount" type="number" inputmode="decimal" min="0" step="0.01" class="inline-num" aria-label="Discount"></dd>
+            <dt class="tax-dt"><input id="invTaxLabel" class="inline-txt" aria-label="Tax name" placeholder="Tax"><input id="invTaxRate" type="number" inputmode="decimal" min="0" max="100" step="0.01" class="inline-num pct" aria-label="Tax rate in percent"><span class="hint">%</span></dt><dd id="invTaxAmt">0.00</dd>
+            <dt>Currency</dt><dd><input id="invCurrency" class="inline-num" maxlength="6" aria-label="Currency"></dd>
+          </dl>
+          <div id="invValidation" class="errors hidden"></div>
+          <label class="switch"><input type="checkbox" id="invItemised" checked><span class="slider"></span> Itemised <span class="hint">show qty and prices</span></label>
+          <div class="btncol">
+            <button id="invSaveBtn" class="btn primary big">Save invoice</button>
+            <div class="btnpair">
+              <button id="invPdfBtn" class="btn">Save + PDF</button>
+              <button id="invPngBtn" class="btn">Save + PNG</button>
+            </div>
+            <button id="invPreviewBtn" class="btn ghost">Preview</button>
+          </div>
+          <div id="invSaveMsg" class="msg"></div>
+        </div>
+      </aside>
+    </div>
+
+    <div class="card saved-inv">
+      <div class="card-title">Saved invoices</div>
+      <div class="row filters">
+        <label class="grow">Search<input id="ivSearch" type="search" placeholder="Number, client, reference or agent"></label>
+        <label>From<input id="ivFrom" type="date"></label>
+        <label>To<input id="ivTo" type="date"></label>
+      </div>
+      <div class="scroll">
+      <table class="list">
+        <thead><tr><th>Date</th><th>No.</th><th>Client</th><th>Reference</th><th>Agent</th><th class="num">Total</th><th></th></tr></thead>
+        <tbody id="ivRows"></tbody>
+      </table>
+      </div>
+      <div id="ivEmpty" class="empty">No saved invoices yet.</div>
+    </div>
+    <div class="mobile-bar" id="invMobileBar"><div><span>Total</span><b id="mInvTotal">0.00</b></div><button id="mInvSave" class="btn primary">Save</button><button type="button" class="btn" data-goto="invSummary">More</button></div>
+  </section>
+
   <!-- ============ SETTINGS ============ -->
   <section id="view-settings" class="view hidden">
     <header class="page-head">
@@ -298,11 +410,27 @@
   </div>
 </div>
 
+<!-- Invoice preview modal -->
+<div id="invPreviewModal" class="modal hidden">
+  <div class="modal-inner">
+    <div class="modal-bar">
+      <label class="switch"><input type="checkbox" id="ipvItemised"><span class="slider"></span> Itemised</label>
+      <span id="ipvNote" class="hint"></span>
+      <button id="ipvPdf" class="btn primary">Download PDF</button>
+      <button id="ipvPng" class="btn">Download PNG</button>
+      <button id="ipvClose" class="btn ghost">Close</button>
+    </div>
+    <div class="paper-wrap"><div id="ipaper" class="paper inv-paper"></div></div>
+  </div>
+</div>
+
 <script src="vendor/html2canvas.min.js"></script>
 <script src="vendor/jspdf.umd.min.js"></script>
 <script src="vendor/supabase.min.js"></script>
 <script src="config.js"></script>
 <script src="cloud.js"></script>
+<script src="mobile.js"></script>
+<script src="invoice.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

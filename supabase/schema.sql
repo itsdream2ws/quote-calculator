@@ -161,3 +161,57 @@ create or replace view public.supplier_lines with (security_invoker = true) as
 
 grant select on public.supplier_lines to authenticated;
 revoke all on public.supplier_lines from anon;
+
+-- ---------------------------------------------------------------------------
+-- Proforma invoices / general quotes (free-text lines). Kept apart from the travel
+-- quotes, so they never show on the supplier report. `data` holds the whole invoice.
+create table public.invoices (
+  id             text primary key,
+  invoice_number text not null unique,
+  invoice_date   date not null,
+  client_name    text not null,
+  total          numeric(12,2) not null default 0,
+  data           jsonb not null,
+  created_by     uuid default auth.uid() references auth.users (id) on delete set null,
+  created_at     timestamptz not null default now(),
+  updated_at     timestamptz not null default now()
+);
+create index invoices_invoice_date_idx on public.invoices (invoice_date);
+create index invoices_created_by_idx on public.invoices (created_by);
+create trigger invoices_touch before update on public.invoices for each row execute function public.touch_updated_at();
+alter table public.invoices enable row level security;
+create policy "staff full access" on public.invoices for all to authenticated using ((select public.is_staff())) with check ((select public.is_staff()));
+grant select, insert, update, delete on public.invoices to authenticated;
+revoke all on public.invoices from anon;
+
+-- Each agent's own invoice letterhead: logo (a small data: URL), company name and details,
+-- payment details, terms, tax. One row per login. Every signed-in agent can read all rows
+-- (a saved invoice shows the logo of the agent who made it); only the owner can change theirs.
+create table public.agent_profiles (
+  user_id    uuid primary key default auth.uid() references auth.users (id) on delete cascade,
+  email      text not null default '',
+  data       jsonb not null default '{}'::jsonb,
+  updated_at timestamptz not null default now()
+);
+-- The owner and email always come from the login, never from what the browser sends.
+create or replace function public.agent_profiles_stamp()
+returns trigger
+language plpgsql
+set search_path = ''
+as $$
+begin
+  new.user_id := auth.uid();
+  new.email := lower(coalesce(auth.jwt() ->> 'email', ''));
+  new.updated_at := now();
+  return new;
+end
+$$;
+create trigger agent_profiles_stamp before insert or update on public.agent_profiles for each row execute function public.agent_profiles_stamp();
+revoke execute on function public.agent_profiles_stamp() from anon, authenticated, public;
+alter table public.agent_profiles enable row level security;
+create policy "staff read" on public.agent_profiles for select to authenticated using ((select public.is_staff()));
+create policy "own insert" on public.agent_profiles for insert to authenticated with check ((select public.is_staff()) and user_id = (select auth.uid()));
+create policy "own update" on public.agent_profiles for update to authenticated using ((select public.is_staff()) and user_id = (select auth.uid())) with check (user_id = (select auth.uid()));
+create policy "own delete" on public.agent_profiles for delete to authenticated using ((select public.is_staff()) and user_id = (select auth.uid()));
+grant select, insert, update, delete on public.agent_profiles to authenticated;
+revoke all on public.agent_profiles from anon;

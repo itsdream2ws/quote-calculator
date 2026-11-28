@@ -343,3 +343,175 @@ tr.ln input.sup { margin-top: 5px; font-size: 12.5px; padding: 5px 8px; }
 .qtype label { flex-direction: row; align-items: center; gap: 6px; font-weight: 600; margin: 0; cursor: pointer; }
 .qtype input { width: auto; margin: 0; }
 .paper .p-sheet td.p-tag.p-extra { background: #e9f3ff; color: #234b7a; }
+
+/* ================= Proforma invoice editor ================= */
+.logo-box { display: flex; gap: 16px; align-items: center; margin-bottom: 16px; flex-wrap: wrap; }
+.logo-preview { width: 200px; height: 90px; border: 1px dashed var(--line-strong); border-radius: 12px; background: repeating-conic-gradient(#f3f5f8 0 25%, #fff 0 50%) 0 0 / 16px 16px; display: grid; place-items: center; overflow: hidden; flex: none; }
+.logo-preview img { max-width: 184px; max-height: 76px; object-fit: contain; }
+.logo-preview span { color: var(--muted); font-size: 12.5px; }
+.logo-actions { flex: 1 1 200px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.logo-actions p { flex-basis: 100%; margin: 2px 0 0; }
+.co-save { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.co-save .msg { margin: 0; }
+.inv-item { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto auto; gap: 10px; align-items: start; padding: 12px 0; border-bottom: 1px solid var(--line); }
+.inv-item:first-child { padding-top: 0; }
+.inv-no { width: 26px; height: 26px; border-radius: 50%; background: var(--brand-50); color: var(--brand-600); font-weight: 700; font-size: 12px; display: grid; place-items: center; margin-top: 6px; }
+.inv-desc { margin: 0; }
+.inv-desc textarea { width: 100%; min-height: 62px; }
+.inv-nums { display: grid; grid-template-columns: 84px 118px 110px; gap: 8px; align-items: end; }
+.inv-nums label { margin: 0; font-size: 11.5px; }
+.inv-nums input { width: 100%; text-align: right; }
+.inv-amt { display: flex; flex-direction: column; gap: 6px; text-align: right; font-size: 11.5px; font-weight: 600; color: var(--ink-2); }
+.inv-amt b { font-size: 14px; color: var(--ink); padding: 9px 0; font-variant-numeric: tabular-nums; }
+.inv-tools { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+.tax-dt { display: flex; align-items: center; gap: 6px; }
+.inline-txt { width: 70px; padding: 6px 8px; font-weight: 600; }
+.inline-num.pct { width: 70px; }
+#invItems textarea.invalid { border-color: var(--danger); background: var(--danger-bg); }
+@media (max-width: 1100px) and (min-width: 701px) { .inv-item { grid-template-columns: 28px minmax(0, 1fr) auto; } .inv-nums { grid-column: 2; } .inv-tools { grid-row: 1; grid-column: 3; } }
+
+/* ================= Proforma invoice document ================= */
+.paper.inv-paper::before { height: 6px; }
+.inv-paper .i-head { display: flex; justify-content: space-between; gap: 28px; padding: 36px 0 22px; border-bottom: 2px solid #0f172a; margin-bottom: 22px; }
+.inv-paper .i-logo { display: block; max-width: 220px; max-height: 80px; object-fit: contain; margin-bottom: 10px; }
+.inv-paper .i-co-name { font-size: 19px; font-weight: 700; color: #0f172a; letter-spacing: -.01em; }
+.inv-paper .i-co-det { color: #64748b; font-size: 11.5px; margin-top: 3px; line-height: 1.5; }
+.inv-paper .i-doc { text-align: right; flex: none; }
+.inv-paper .i-title { font-size: 20px; font-weight: 700; letter-spacing: .08em; color: #0b6f86; text-transform: uppercase; }
+.inv-paper table.i-meta { width: auto; margin: 10px 0 0 auto; font-size: 12px; border-collapse: collapse; }
+.inv-paper table.i-meta td { border: 0; padding: 2px 0 2px 14px; text-align: right; }
+.inv-paper table.i-meta td:first-child { color: #64748b; }
+.inv-paper table.i-meta td:last-child { font-weight: 600; color: #0f172a; }
+.inv-paper .i-parties { display: flex; gap: 18px; margin-bottom: 22px; }
+.inv-paper .i-box { flex: 1; background: #f6f9fb; border-radius: 8px; padding: 12px 16px; font-size: 12.5px; }
+.inv-paper .i-label { font-size: 10.5px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: #0b6f86; margin-bottom: 4px; }
+.inv-paper .i-client { font-size: 15px; font-weight: 700; color: #0f172a; }
+.inv-paper table.i-items { width: calc(100% - 120px); border-collapse: collapse; font-size: 12.5px; }
+.inv-paper table.i-items th { background: #0f172a; color: #fff; font-size: 10.5px; letter-spacing: .08em; padding: 8px 10px; border: 0; }
+.inv-paper table.i-items th.num { text-align: right; }
+.inv-paper table.i-items td { padding: 9px 10px; border-bottom: 1px solid #e2e8f0; vertical-align: top; }
+.inv-paper table.i-items td.num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; width: 90px; }
+.inv-paper table.i-items .i-n { width: 26px; color: #64748b; text-align: center; }
+.inv-paper table.i-items td.i-d { color: #0f172a; }
+.inv-paper .i-bottom { display: flex; justify-content: flex-end; margin-top: 14px; }
+.inv-paper table.i-totals { width: 300px; margin: 0; border-collapse: collapse; font-size: 13px; }
+.inv-paper table.i-totals td { border: 0; padding: 5px 10px; color: #475569; }
+.inv-paper table.i-totals td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.inv-paper table.i-totals tr.i-grand td { background: #0b6f86; color: #fff; font-weight: 700; font-size: 15px; padding: 11px 12px; }
+.inv-paper .i-block { margin-top: 20px; font-size: 12px; color: #334155; }
+.inv-paper .i-sign { margin-top: 48px; width: 240px; font-size: 12px; color: #334155; }
+.inv-paper .i-sigline { border-bottom: 1px solid #94a3b8; height: 44px; margin-bottom: 6px; }
+.inv-paper .i-foot { margin-top: 30px; font-size: 10.5px; color: #94a3b8; border-top: 1px solid #e2e8f0; padding-top: 10px; }
+
+/* ================= Phones and small tablets ================= */
+.mobile-bar { display: none; }
+@media (max-width: 860px) {
+  /* Menu: icon + short name, filling the width */
+  .sidebar { padding: 6px 6px calc(6px + env(safe-area-inset-top, 0px)); gap: 0; top: 0; }
+  .sidebar .brand { display: none; }
+  .nav { flex: 1; justify-content: space-between; }
+  .tab { flex: 1 1 0; flex-direction: column; gap: 3px; padding: 7px 2px 6px; min-width: 52px; position: relative; justify-content: center; text-align: center; }
+  .tab::after { content: attr(data-short); font-size: 10.5px; font-weight: 600; line-height: 1; }
+  .tab.active { box-shadow: inset 0 -2px 0 #2dd4bf; }
+  .tab .badge { position: absolute; top: 2px; right: 6px; margin: 0; }
+  .content { padding: 16px 12px 110px; }
+  h1 { font-size: 22px; }
+  .page-head { margin-bottom: 14px; }
+  .card { padding: 16px 14px; border-radius: 14px; margin-bottom: 14px; }
+  /* iPhone zooms into any field with text under 16px: avoid that */
+  input, select, textarea { font-size: 16px; }
+  .inline-num, .inline-txt { font-size: 15px; }
+  .btn { padding: 10px 14px; }
+  .btn.small { padding: 7px 10px; }
+  /* Bottom bar with the total and Save (quote and invoice pages) */
+  .view:not(.hidden) .mobile-bar { display: flex; position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; gap: 8px; align-items: center;
+    padding: 10px 12px calc(10px + env(safe-area-inset-bottom, 0px)); background: var(--surface); border-top: 1px solid var(--line); box-shadow: 0 -6px 20px rgba(13, 27, 42, .1); }
+  .mobile-bar > div { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+  .mobile-bar span { font-size: 11px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .05em; }
+  .mobile-bar b { font-size: 18px; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .summary { scroll-margin-top: 70px; }
+  /* Preview: smaller frame; the paper is scaled to fit by fitPaper() */
+  .modal { padding: 0; }
+  .modal-inner { max-width: none; }
+  .modal-bar { position: sticky; top: 0; z-index: 2; border-radius: 0; padding: 10px 12px; }
+  .modal-bar .switch { flex-basis: 100%; margin: 0 0 4px; }
+  .modal-bar .btn { flex: 1; }
+  .paper-wrap { padding: 8px; border-radius: 0; min-height: 100vh; }
+}
+@media (max-width: 700px) {
+  /* Invoice lines: description on top, numbers underneath */
+  .inv-item { grid-template-columns: 26px minmax(0, 1fr) auto; }
+  .inv-nums { grid-column: 1 / -1; grid-template-columns: 1fr 1.3fr 1.2fr; }
+  .inv-tools { grid-row: 1; grid-column: 3; }
+  .logo-preview { width: 100%; }
+  /* Quote day lines: each line is a small card instead of a wide table row */
+  table.day-lines { min-width: 0; }
+  table.day-lines, table.day-lines tbody { display: block; }
+  table.day-lines tr.ln { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "mv main del" "mv pax pax" "mv price amt"; gap: 8px 10px; padding: 12px 0; border-bottom: 1px solid var(--line); }
+  table.day-lines tr.ln:last-child { border-bottom: 0; }
+  table.day-lines tr.ln td { display: block; border: 0; padding: 0; width: auto !important; }
+  table.day-lines tr.ln td:nth-child(1) { grid-area: mv; }
+  table.day-lines tr.ln td:nth-child(2) { grid-area: main; }
+  table.day-lines tr.ln td:nth-child(3) { grid-area: pax; }
+  table.day-lines tr.ln td:nth-child(4) { grid-area: price; }
+  table.day-lines tr.ln td:nth-child(5) { grid-area: amt; align-self: center; font-size: 15px; }
+  table.day-lines tr.ln td:nth-child(6) { grid-area: del; }
+  table.day-lines tr.ln td:nth-child(2) input { margin-top: 6px; }
+  table.day-lines tr:not(.ln), table.day-lines tr:not(.ln) td { display: block; }
+  .pax2 input.n, .pax2 input.n.price { width: 84px; min-width: 0; }
+  .day-head { gap: 8px; }
+  .day-date { width: auto; flex: 1 1 150px; }
+  .day-sub { margin-left: 0; }
+  .day-extras { display: flex; flex-wrap: wrap; }
+  /* Hotel and additional charges: one block per row */
+  table.hotel-table { min-width: 0; }
+  table.hotel-table thead { display: none; }
+  table.hotel-table, table.hotel-table tbody { display: block; }
+  table.hotel-table tr[data-h], table.hotel-table tr[data-x] { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 8px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+  table.hotel-table tr td { display: block; border: 0; padding: 0; }
+  table.hotel-table tr td:nth-child(1), table.hotel-table tr td:nth-child(2) { grid-column: 1 / -1; }
+  table.hotel-table .num input.n { max-width: none; width: 100%; }
+}
+@media (max-width: 640px) {
+  /* Lists (saved quotes, price list, invoices, supplier report) as cards */
+  table.mcards { min-width: 0; margin-top: 10px; }
+  table.mcards thead { display: none; }
+  table.mcards, table.mcards tbody, table.mcards tfoot { display: block; }
+  table.mcards tbody tr { display: block; border: 1px solid var(--line); border-radius: 12px; padding: 8px 12px; margin-bottom: 10px; background: var(--surface); }
+  table.mcards tbody td { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; border: 0; padding: 4px 0; text-align: right; white-space: normal !important; min-width: 0 !important; }
+  table.mcards tbody td::before { content: attr(data-label); flex: none; max-width: 45%; text-align: left; font-size: 11.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+  table.mcards tbody td[data-label=""]::before, table.mcards tbody td.m-wide::before { display: none; }
+  table.mcards tbody td.m-wide { display: block; text-align: left; }
+  table.mcards tbody td.actions { flex-wrap: wrap; justify-content: flex-start; gap: 6px; padding-top: 8px; margin-top: 4px; border-top: 1px solid var(--line); }
+  table.mcards tfoot tr { display: flex; flex-wrap: wrap; justify-content: space-between; padding: 10px 12px; border-radius: 12px; background: var(--surface-2); }
+  table.mcards tfoot td { display: block; border: 0; padding: 0; background: none; }
+  table.mcards tfoot td:empty { display: none; }
+  .scroll { margin: 0; padding: 0; }
+  .filters > label { flex: 1 1 130px; }
+  .btnpair { grid-template-columns: 1fr 1fr; }
+}
+@media print { .mobile-bar { display: none !important; } }
+.paper.inv-paper table.i-meta tr td, .paper.inv-paper table.i-totals tr td { border: 0; }
+.paper.inv-paper table.i-items thead tr { background: #0f172a; }
+.paper.inv-paper table.i-totals tr.i-grand { background: #0b6f86; }
+.paper.inv-paper table.i-items th, .paper.inv-paper table.i-totals tr.i-grand td { background: transparent; }
+@media (max-width: 700px) {
+  table.day-lines tr.ln.ticket td:nth-child(3), table.day-lines tr.ln.meal td:nth-child(3),
+  table.day-lines tr.ln.ticket td:nth-child(4), table.day-lines tr.ln.meal td:nth-child(4) { display: flex; align-items: center; gap: 8px; }
+  table.day-lines tr.ln.ticket td:nth-child(3)::before, table.day-lines tr.ln.meal td:nth-child(3)::before { content: "Pax"; width: 38px; font-size: 11px; font-weight: 700; color: var(--muted); }
+  table.day-lines tr.ln.ticket td:nth-child(4)::before, table.day-lines tr.ln.meal td:nth-child(4)::before { content: "Price"; width: 38px; font-size: 11px; font-weight: 700; color: var(--muted); }
+  .report .controls > label { flex: 1 1 100%; }
+  .report .controls > label input, .report .controls > label select { width: 100%; }
+  .report .controls button { flex: 1 1 auto; }
+}
+@media (max-width: 640px) {
+  table.mcards tbody td { display: block; overflow: hidden; }
+  table.mcards tbody td::before { float: left; margin-right: 12px; padding-top: 1px; }
+  table.mcards tbody td.actions { display: flex; }
+}
+/* Invoice lines everywhere: description across the width, qty / price / amount underneath */
+.inv-item { grid-template-columns: 28px minmax(0, 1fr) auto; }
+.inv-nums { grid-column: 2; grid-template-columns: 100px 140px minmax(110px, 1fr); }
+.inv-tools { grid-row: 1; grid-column: 3; }
+@media (max-width: 700px) { .inv-nums { grid-column: 1 / -1; grid-template-columns: 1fr 1.3fr 1.2fr; } }
