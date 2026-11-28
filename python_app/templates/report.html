@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}Supplier report · Quote Calculator{% endblock %}
+{% block content %}
+<header class="page-head">
+  <div><h1>Supplier cross check</h1>
+  <p class="page-sub">Every ticket, transport, meal, guide and hotel line with a travel date in the range, grouped by supplier, to check against supplier invoices. Prices are the ones saved on each quote. Reading {{ count }} quote(s) on this Mac: sync first to include everyone's latest.</p></div>
+</header>
+<form class="card row wrap no-print" method="get">
+  <label>Month <input type="month" name="month" value="{{ month }}" onchange="this.form.from.value=''; this.form.to.value=''; this.form.submit()"></label>
+  <label>Travel from <input type="date" name="from" value="{{ date_from }}"></label>
+  <label>Travel to <input type="date" name="to" value="{{ date_to }}"></label>
+  <label>Supplier <select name="supplier" onchange="this.form.submit()"><option value="">All suppliers</option>
+    {% for g in rep.groups %}<option {{ 'selected' if g.supplier == supplier }}>{{ g.supplier }}</option>{% endfor %}</select></label>
+  <div class="formbtns">
+    <button class="btn primary">Show report</button>
+    <a class="btn" href="{{ csv_url(supplier) }}">Download CSV</a>
+    <button type="button" class="btn" onclick="window.print()">Print / PDF</button>
+  </div>
+</form>
+
+<div class="report-totals">
+  <div><b>{{ rep.quoteCount }}</b><span>quotes</span></div>
+  <div><b>{{ rep.lines|length }}</b><span>lines</span></div>
+  <div class="main"><b>{{ currency }} {{ amt(rep.supplierTotalCents) }}</b><span>owed to suppliers</span></div>
+  <div><b>{{ currency }} {{ amt(rep.serviceChargeCents) }}</b><span>service charges (yours, not on supplier invoices)</span></div>
+</div>
+{% if rep.missingSupplier %}<div class="alert warn">{{ rep.missingSupplier }} line(s) have no supplier set. Add a supplier to those price list items so they group correctly.</div>{% endif %}
+{% if rep.tripStartLines %}<p class="muted small">Hotels and additional charges have no date of their own, so they are listed under the first day of the trip (marked †).</p>{% endif %}
+{% if rep.missingTravelDate %}<div class="alert warn">{{ rep.missingTravelDate }} line(s) have no travel date, so the quote date was used for them (marked *). Check those against the invoice by hand.</div>{% endif %}
+{% if not groups %}<p class="empty">No ticket, transport, meal, guide or hotel lines with a travel date from {{ date_from|date }} to {{ date_to|date }}.</p>{% endif %}
+
+{% for g in groups %}
+<section class="card">
+  <div class="group-head"><h2>{{ g.supplier }}</h2>
+    <a class="btn small no-print" href="{{ csv_url(g.supplier) }}">CSV for this supplier</a></div>
+  <div class="scroll"><table class="list">
+    <thead><tr><th>Type</th><th>Travel date</th><th>Quote</th><th>Client</th><th>Code</th><th>Item</th><th class="num">Qty</th><th class="num">Unit ({{ currency }})</th><th class="num">Total ({{ currency }})</th></tr></thead>
+    <tbody>
+    {% for l in g.lines %}
+      <tr><td>{{ l.type }}</td>
+        <td>{% if l.dateIsFallback %}{{ l.reportDate|date }} *{% else %}{{ l.travelDate|date }}{{ ' †' if l.tripStart }}{% endif %}</td>
+        <td>{{ l.quoteNumber }}<br><span class="ac">saved {{ l.quoteDate|date }}</span></td>
+        <td>{{ l.clientName }}</td><td>{{ l.code }}</td><td>{{ l.item }}</td>
+        <td class="num">{{ l.qty }}{% if l.adults is not none and l.children %}<br><span class="ac">{{ l.adults }}A + {{ l.children }}C</span>{% endif %}</td>
+        <td class="num">{% if l.singlePrice %}{{ amt(l.unitCents) }}{% else %}A {{ amt(l.adultCents) }}<br>C {{ amt(l.childCents) }}{% endif %}</td>
+        <td class="num">{{ amt(l.totalCents) }}</td></tr>
+    {% endfor %}
+    </tbody>
+    <tfoot><tr><td colspan="6">Total for {{ g.supplier }}</td><td class="num">{{ g.qty }}</td><td></td><td class="num">{{ amt(g.totalCents) }}</td></tr></tfoot>
+  </table></div>
+</section>
+{% endfor %}
+{% endblock %}

@@ -1,0 +1,151 @@
+{% extends "base.html" %}
+{% block title %}{{ 'Editing ' ~ draft.invoiceNumber if draft.id else 'New proforma invoice' }} · Quote Calculator{% endblock %}
+{% block content %}
+<header class="page-head">
+  <div>
+    <h1 id="heading">{{ 'Editing ' ~ draft.invoiceNumber if draft.id else 'New proforma invoice' }}</h1>
+    <p class="page-sub">A general quote or proforma invoice for anything: your logo, lines you write yourself, totals, PDF or PNG.</p>
+  </div>
+  <button type="button" class="btn" id="newBtn">+ Start a new invoice</button>
+</header>
+
+<div class="grid2" id="draftForm">
+  <input type="hidden" data-path="id" value="{{ draft.id or '' }}">
+  <input type="hidden" data-path="createdBy" value="{{ draft.createdBy }}">
+  <input type="hidden" data-path="autoNumber" data-type="bool" value="{{ 'true' if draft.autoNumber else 'false' }}">
+  <div class="stack">
+    <div class="card">
+      <div class="card-title"><span class="step">1</span>Your company <span class="hint" style="margin-left:auto">saved to your agent login</span></div>
+      <div class="logo-box">
+        <div class="logo-preview">{% if logo %}<img alt="Company logo" src="{{ logo }}">{% else %}<span>No logo yet</span>{% endif %}</div>
+        <div class="logo-actions">
+          {# Choosing a picture uploads it straight away (the form sends itself). #}
+          <form method="post" action="{{ url_for('logo_upload') }}" enctype="multipart/form-data" class="inline">
+            <label class="btn filebtn">Upload logo<input name="logo" type="file" accept="image/png,image/jpeg,image/webp,image/gif" onchange="this.form.submit()"></label>
+          </form>
+          {% if logo %}<form method="post" action="{{ url_for('logo_remove') }}" class="inline" data-confirm="Remove your logo? It disappears from all invoices you made.">
+            <button class="btn ghost danger">Remove logo</button></form>{% endif %}
+          <p class="muted small">PNG with a transparent background looks best. It is saved to your login, so it is there on any Mac.</p>
+        </div>
+      </div>
+      <label>Company name *<input data-path="companyName" value="{{ draft.companyName }}" placeholder="e.g. Horeb Tours Pte Ltd"></label>
+      <label>Company details <span class="hint">address, phone, email, registration no.</span><textarea data-path="companyDetails" rows="3">{{ draft.companyDetails }}</textarea></label>
+      <div class="co-save"><button type="button" class="btn" id="letterheadBtn">Save as my default letterhead</button><span id="letterheadMsg" class="msg"></span></div>
+      <p class="muted small">Saves the company name and details, payment details, terms and tax for your next invoices.</p>
+    </div>
+
+    <div class="card">
+      <div class="card-title"><span class="step">2</span>Document</div>
+      <datalist id="titleList">{% for t in titles %}<option value="{{ t }}">{% endfor %}</datalist>
+      <div class="row">
+        <label>Title<input data-path="title" list="titleList" value="{{ draft.title }}" placeholder="PROFORMA INVOICE"></label>
+        <label>Number *<input data-path="invoiceNumber" value="{{ draft.invoiceNumber }}" autocomplete="off"></label>
+      </div>
+      <div class="row">
+        <label>Date *<input type="date" data-path="date" value="{{ draft.date }}"></label>
+        <label>Valid until <span class="hint">optional</span><input type="date" data-path="validUntil" value="{{ draft.validUntil }}"></label>
+      </div>
+      <label>Reference / subject <span class="hint">optional</span><input data-path="reference" value="{{ draft.reference }}" placeholder="e.g. Bangkok group tour, 12 to 16 Dec"></label>
+    </div>
+
+    <div class="card">
+      <div class="card-title"><span class="step">3</span>Bill to</div>
+      <label>Client name *<input data-path="clientName" value="{{ draft.clientName }}" autocomplete="off" placeholder="Person or company"></label>
+      <label>Client details <span class="hint">optional</span><textarea data-path="clientDetails" rows="3" placeholder="Address, phone, email">{{ draft.clientDetails }}</textarea></label>
+    </div>
+
+    <div class="card">
+      <div class="card-title"><span class="step">4</span>Lines <span class="hint" style="margin-left:auto">write anything; amount = qty × unit price</span></div>
+      <div id="editor">{% include "_invoice_items.html" %}</div>
+      <button type="button" class="btn add-day" data-action="add_item">+ Add line</button>
+    </div>
+
+    <div class="card">
+      <div class="card-title"><span class="step">5</span>Notes, payment and terms</div>
+      <label>Notes <span class="hint">optional</span><textarea data-path="notes" rows="2">{{ draft.notes }}</textarea></label>
+      <label>Payment details <span class="hint">optional</span><textarea data-path="payment" rows="3" placeholder="Bank, account name, account number, PayNow UEN">{{ draft.payment }}</textarea></label>
+      <label>Terms <span class="hint">optional</span><textarea data-path="terms" rows="2">{{ draft.terms }}</textarea></label>
+    </div>
+  </div>
+
+  <aside class="summary sticky">
+    <div class="total-hero">
+      <div class="total-label">Total</div>
+      <div class="total-value" data-out="invGrand">0.00</div>
+      <div class="total-pax" data-out="invHeroSub"></div>
+    </div>
+    <div class="summary-body">
+      <dl class="totals">
+        <dt>Subtotal</dt><dd data-out="invSub">0.00</dd>
+        <dt>Discount</dt><dd><input data-path="discount" data-type="number" type="number" min="0" step="0.01" class="inline-num" aria-label="Discount" value="{{ draft.discount }}"></dd>
+        <dt class="tax-dt"><input data-path="taxLabel" class="inline-txt" aria-label="Tax name" placeholder="Tax" value="{{ draft.taxLabel }}"><input data-path="taxRate" data-type="number" type="number" min="0" max="100" step="0.01" class="inline-num pct" aria-label="Tax rate in percent" value="{{ draft.taxRate }}"><span class="hint">%</span></dt><dd data-out="invTaxAmt">0.00</dd>
+        <dt>Currency</dt><dd><input data-path="currency" class="inline-num" maxlength="6" aria-label="Currency" value="{{ draft.currency }}"></dd>
+      </dl>
+      <div id="errors" class="errors hidden"></div>
+      <label class="switch"><input type="checkbox" data-path="itemised" data-type="checkbox" {{ 'checked' if draft.itemised }}><span class="slider"></span> Itemised <span class="hint">show qty and prices</span></label>
+      <div class="btncol">
+        <button type="button" class="btn primary big" data-save>Save invoice</button>
+        <div class="btnpair"><button type="button" class="btn" data-save="pdf">Save + PDF</button><button type="button" class="btn" data-save="png">Save + PNG</button></div>
+        <button type="button" class="btn ghost" data-preview>Preview</button>
+      </div>
+      <div id="saveMsg" class="msg {{ 'ok' if note }}">{{ note }}</div>
+    </div>
+  </aside>
+</div>
+
+<div class="card saved-inv">
+  <div class="card-title">Saved invoices</div>
+  <form class="row filters" method="get">
+    <label class="grow">Search<input name="q" type="search" value="{{ search }}" placeholder="Number, client, reference or agent"></label>
+    <label>From<input name="from" type="date" value="{{ date_from }}"></label>
+    <label>To<input name="to" type="date" value="{{ date_to }}"></label>
+    <div class="formbtns"><button class="btn">Search</button></div>
+  </form>
+  <div class="scroll"><table class="list">
+    <thead><tr><th>Date</th><th>No.</th><th>Client</th><th>Reference</th><th>Agent</th><th class="num">Total</th><th></th></tr></thead>
+    <tbody>
+    {% for v in rows %}
+      <tr><td>{{ v.date|date }}</td><td>{{ v.invoiceNumber }}</td><td>{{ v.billTo.name if v.billTo }}</td><td>{{ v.reference }}</td>
+        <td>{{ v.createdBy }}</td><td class="num">{{ v.currency }} {{ v.total|num }}</td>
+        <td class="actions">
+          <a class="btn small" href="{{ url_for('invoice_view', vid=v.id) }}">View / download</a>
+          <a class="btn small" href="{{ url_for('invoice_page', edit=v.id) }}">Edit</a>
+          <a class="btn small" href="{{ url_for('invoice_page', copy=v.id) }}">Copy as new</a>
+          <form class="inline" method="post" action="{{ url_for('invoice_delete', vid=v.id) }}" data-confirm="Delete {{ v.invoiceNumber }}? This cannot be undone.">
+            <button class="btn small ghost danger">Delete</button></form>
+        </td></tr>
+    {% endfor %}
+    </tbody></table></div>
+  {% if not rows %}<div class="empty">{{ 'No invoices match.' if any_saved else 'No saved invoices yet.' }}</div>{% endif %}
+</div>
+<div class="mobile-bar"><div><span>Total</span><b data-out="mTotal">0.00</b></div><button type="button" class="btn primary" data-save>Save</button></div>
+
+<div id="previewModal" class="modal hidden">
+  <div class="modal-inner">
+    <div class="modal-bar"><span class="muted small">Preview. Save to download.</span><button type="button" class="btn ghost" data-close>Close</button></div>
+    <div class="paper-wrap"><img class="preview-img" alt="Preview of the invoice"></div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='editor.js') }}"></script>
+<script>
+  Editor.start({
+    url: "/invoice",
+    storageKey: "qc.py.invoiceDraft",
+    restore: {{ 'true' if restore else 'false' }},
+    newUrl: "/invoice?new=1",
+    fileUrl: (id) => "/invoices/" + id + "/file.",
+    heading: (number) => "Editing " + number,
+    hasContent: (d) => d.clientName || d.items.some((i) => (i.description || '').trim()),
+    onDateChange: true,  // a new date gives a new automatic number
+  });
+  document.getElementById('letterheadBtn').addEventListener('click', async () => {
+    const msg = document.getElementById('letterheadMsg');
+    msg.textContent = 'Saving…';
+    const r = await fetch('/invoice/letterhead', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ draft: Editor.readDraft() }) }).then((x) => x.json());
+    msg.textContent = r.message; msg.className = 'msg ' + (r.ok ? 'ok' : 'err');
+  });
+</script>
+{% endblock %}

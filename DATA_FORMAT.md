@@ -28,7 +28,7 @@ The old offline version kept the same objects in localStorage under `qc.prices`,
 ## Quote
 ```
 {
-  id, quoteNumber: "Q-YYYYMMDD-NNN", date: "YYYY-MM-DD", clientName, adults, children, notes,
+  id, quoteNumber: "Q-YYYYMMDD-NNN" (website) or "Q-YYYYMMDD-AG01-NNN" (Mac app: includes the agent code), date: "YYYY-MM-DD", clientName, adults, children, notes,
   currency, serviceCharge (flat fee, called Profit in the app), itemised (bool),
 
   // Layout, in the order shown on the quote:

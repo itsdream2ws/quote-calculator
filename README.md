@@ -6,6 +6,8 @@ A web app for making travel quotes (SGD): a price list of tickets and transport,
 
 Everything is saved online in Supabase, so every agent in the company sees the same quotes, price list and report. Each agent logs in with their own **agent code** (like `AG01`) and password. Nobody can see or change anything without logging in.
 
+**Mac app (Python, works offline):** the [`python_app`](python_app/) folder has the same app written in Python, which runs on your own Mac without internet and syncs with the same database. See [python_app/GUIDE.md](python_app/GUIDE.md) to set it up and change it.
+
 ---
 
 ## Part 1: One-time setup (do this once)

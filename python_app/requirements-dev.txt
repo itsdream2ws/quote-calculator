@@ -1,0 +1,4 @@
+# Only needed to run the tests (python3 -m pytest tests)
+-r requirements.txt
+pytest
+playwright           # optional: the browser test is skipped without it

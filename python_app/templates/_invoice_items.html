@@ -1,0 +1,21 @@
+{# The lines of the invoice. Redrawn by app.py when you add, remove or move a line. #}
+{% for item in draft["items"] %}{% set i = loop.index0 %}
+<div class="inv-item">
+  <div class="inv-no">{{ loop.index }}</div>
+  <label class="inv-desc"><span class="sr">Description</span>
+    <textarea data-path="items.{{ i }}.description" rows="2" placeholder="Description, e.g. 3D2N Bangkok package, twin sharing">{{ item.description }}</textarea></label>
+  <div class="inv-nums">
+    <label>Qty<input type="number" inputmode="decimal" min="0" step="any" data-path="items.{{ i }}.qty" data-type="number" value="{{ item.qty if item.qty is not none }}"></label>
+    <label>Unit price<input type="number" inputmode="decimal" min="0" step="0.01" data-path="items.{{ i }}.unitPrice" data-type="number" value="{{ item.unitPrice if item.unitPrice is not none }}" placeholder="0.00"></label>
+    <div class="inv-amt"><span>Amount</span><b data-out="items.{{ i }}.amount">{{ line_amount(item)|num }}</b></div>
+  </div>
+  <div class="inv-tools">
+    <button type="button" class="icon-btn" data-action="up" data-index="{{ i }}" title="Move up" {{ 'disabled' if loop.first }}>▲</button>
+    <button type="button" class="icon-btn" data-action="down" data-index="{{ i }}" title="Move down" {{ 'disabled' if loop.last }}>▼</button>
+    <button type="button" class="btn small ghost danger" data-action="del_item" data-index="{{ i }}" title="Remove line"
+      {% if item.description %}data-confirm="Remove line {{ loop.index }}?"{% endif %}>✕</button>
+  </div>
+</div>
+{% else %}
+<p class="muted empty-day">No lines yet. Click "+ Add line".</p>
+{% endfor %}

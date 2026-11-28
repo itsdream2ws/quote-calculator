@@ -1,0 +1,67 @@
+<!doctype html>
+{# Every page uses this layout: the dark menu on the left, messages, then the page itself. #}
+{% set nav = [
+  ("quote_page", "New quote", "Quote", '<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M12 12v6M9 15h6"/>'),
+  ("saved_quotes", "Saved quotes", "Saved", '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>'),
+  ("prices_page", "Price list", "Prices", '<path d="M3 12V4a1 1 0 0 1 1-1h8l9 9-9 9z"/><circle cx="7.5" cy="7.5" r="1.5"/>'),
+  ("invoice_page", "Proforma invoice", "Invoice", '<path d="M6 2h9l5 5v13a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2z"/><path d="M14 2v6h6M8 13h8M8 17h5"/>'),
+  ("report_page", "Supplier report", "Report", '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>'),
+  ("settings_page", "Settings", "Settings", '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/>'),
+] %}
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}Quote Calculator{% endblock %}</title>
+<style>
+  /* The Inter font comes with the app, so it looks right offline too. */
+  @font-face { font-family: "Inter"; font-weight: 400; src: url("{{ url_for('static', filename='fonts/Inter-Regular.otf') }}"); }
+  @font-face { font-family: "Inter"; font-weight: 500 600; src: url("{{ url_for('static', filename='fonts/Inter-SemiBold.otf') }}"); }
+  @font-face { font-family: "Inter"; font-weight: 700; src: url("{{ url_for('static', filename='fonts/Inter-Bold.otf') }}"); }
+</style>
+<link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
+</head>
+<body class="{% block body_class %}{% endblock %}">
+<div class="shell">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="logo" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M2 16l20-8-8 14-2-6-10 0z" fill="currentColor"/></svg></div>
+      <div><div class="brand-name">{{ brand }}</div><div class="brand-sub">Travel quotes</div></div>
+    </div>
+    <nav class="nav">
+      {% for endpoint, label, short, icon in nav %}
+      <a class="tab {{ 'active' if request.endpoint == endpoint }}" href="{{ url_for(endpoint) }}" data-short="{{ short }}">
+        <svg viewBox="0 0 24 24">{{ icon|safe }}</svg><span>{{ label }}</span>
+        {% if endpoint == 'prices_page' and price_alerts %}<span class="badge">{{ price_alerts }}</span>{% endif %}
+      </a>
+      {% endfor %}
+    </nav>
+    <div class="sidebar-foot">
+      {% if agent %}Agent {{ agent }}<br>{% endif %}
+      <span class="sync-state {{ 'warn' if unsent }}">
+        {% if unsent %}{{ unsent }} not sent yet{% else %}All sent{% endif %}
+      </span><br>
+      {% if last_sync %}<span title="{{ last_sync }}">Last sync {{ last_sync[:10]|date }} {{ last_sync[11:16] }} UTC</span><br>{% endif %}
+      <form method="post" action="{{ url_for('sync_page') }}" class="inline"><button class="sync-btn">↻ Sync now</button></form>
+      <form method="post" action="{{ url_for('logout') }}" class="inline"><button class="link-btn">Log out</button></form>
+    </div>
+  </aside>
+  <main class="content">
+    {% for kind, text in get_flashed_messages(with_categories=true) %}
+      <div class="alert {{ 'bad' if kind == 'err' else 'okay' }} flash">{{ text }}</div>
+    {% endfor %}
+    {% block content %}{% endblock %}
+  </main>
+</div>
+<script src="{{ url_for('static', filename='mobile.js') }}"></script>
+<script>
+  // Forms with data-confirm="..." ask first (used by the Delete buttons).
+  document.addEventListener('submit', (e) => {
+    const q = e.target.dataset.confirm;
+    if (q && !confirm(q)) e.preventDefault();
+  });
+</script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

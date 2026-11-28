@@ -1,0 +1,135 @@
+{# The left side of the quote page: client, day by day, hotel, additional charges.
+   Every box has data-path="..." saying where its value goes in the draft, for example
+   data-path="days.0.lines.2.adults" = day 1, line 3, number of adults.
+   editor.js reads all of them to rebuild the draft, and sends it to app.py.
+   Buttons have data-action="..." (see apply_action in quotes.py for what each one does). #}
+{% macro num(path, value, step="1", min="0", cls="n") -%}
+<input class="{{ cls }}" type="number" min="{{ min }}" step="{{ step }}" data-path="{{ path }}" data-type="number" value="{{ value if value is not none }}">
+{%- endmacro %}
+{% macro hidden(path, value) -%}<input type="hidden" data-path="{{ path }}" value="{{ value if value is not none }}">{%- endmacro %}
+
+{{ hidden("id", draft.id) }}{{ hidden("quoteNumber", draft.quoteNumber) }}{{ hidden("createdBy", draft.createdBy) }}
+
+<div class="card">
+  <div class="card-title"><span class="step">1</span>Client</div>
+  <div class="qtype" role="radiogroup" aria-label="Quote type">
+    <label><input type="radio" name="qType" value="normal" data-path="group" data-type="radio" {{ 'checked' if not draft.group }} data-redraw> Normal</label>
+    <label><input type="radio" name="qType" value="group" data-path="group" data-type="radio" {{ 'checked' if draft.group }} data-redraw> Group <span class="hint">adds additional charges</span></label>
+  </div>
+  <div class="row">
+    <label class="grow">Client name *<input data-path="clientName" value="{{ draft.clientName }}" autocomplete="off" placeholder="e.g. Tan family"></label>
+    <label class="paxbox">Adults *{{ num("adults", draft.adults) }}</label>
+    <label class="paxbox">Children{{ num("children", draft.children) }}</label>
+    <label>Quote date *<input type="date" data-path="date" value="{{ draft.date }}"></label>
+  </div>
+  <label>Notes <span class="hint">optional, printed on the quote</span><textarea data-path="notes" rows="2" placeholder="e.g. Quote valid for 7 days">{{ draft.notes }}</textarea></label>
+</div>
+
+<div class="card">
+  <div class="card-title"><span class="step">2</span>Day by day <span class="hint" style="margin-left:auto">attractions, transport, meals and guides, in order</span></div>
+  <datalist id="codeList">{% for code, label in codes %}<option value="{{ code }}">{{ label }}</option>{% endfor %}</datalist>
+  <datalist id="supplierList">{% for s in supplier_names %}<option value="{{ s }}">{% endfor %}</datalist>
+  {% for day in draft.days %}{% set d = loop.index0 %}
+  <div class="day">
+    <div class="day-head">
+      <span class="day-no">Day {{ loop.index }}</span>
+      <input type="date" class="day-date" data-path="days.{{ d }}.date" value="{{ day.date }}">
+      <span class="day-dow">{{ weekday(day.date) }}</span>
+      <span class="day-sub" data-out="days.{{ d }}.subtotal"></span>
+      <button type="button" class="btn small ghost danger" data-action="del_day" data-day="{{ d }}"
+        {% if day.lines %}data-confirm="Remove Day {{ loop.index }} and its {{ day.lines|length }} line(s)?"{% endif %}>Remove day</button>
+    </div>
+    <div class="scroll"><table class="lines day-lines"><tbody>
+    {% for l in day.lines %}{% set i = loop.index0 %}{% set p = "days.%d.lines.%d."|format(d, i) %}
+      <tr class="ln {{ l.type }}">
+        <td><div class="mv">
+          <button type="button" class="icon-btn" data-action="up" data-day="{{ d }}" data-index="{{ i }}" title="Move up" {{ 'disabled' if loop.first }}>▲</button>
+          <button type="button" class="icon-btn" data-action="down" data-day="{{ d }}" data-index="{{ i }}" title="Move down" {{ 'disabled' if loop.last }}>▼</button>
+        </div>{{ hidden(p ~ "type", l.type) }}</td>
+        <td>
+        {% if l.type == "ticket" %}
+          <span class="kind t">Attraction</span>
+          <div class="ln-name"><b class="code">{{ l.code }}</b> {{ l.name }}</div><div class="ln-sup">{{ l.supplier }}</div>
+          {{ hidden(p ~ "code", l.code) }}{{ hidden(p ~ "name", l.name) }}{{ hidden(p ~ "supplier", l.supplier) }}
+        {% elif l.type == "meal" %}
+          <span class="kind m">Meal</span>
+          <select class="meal-pick" data-path="{{ p }}meal">{% for m in meals %}<option {{ 'selected' if m == l.meal }}>{{ m }}</option>{% endfor %}</select>
+          <input data-path="{{ p }}description" placeholder="Restaurant or menu (optional)" value="{{ l.description }}">
+          <input class="sup" data-path="{{ p }}supplier" placeholder="Supplier" list="supplierList" value="{{ l.supplier }}">
+        {% else %}
+          <span class="kind {{ 'g' if l.type == 'guide' else 'r' }}">{{ 'Guide' if l.type == 'guide' else 'Transport' }}</span>
+          {% if l.code %}<b class="code tr-code">{{ l.code }}</b>{% endif %}{{ hidden(p ~ "code", l.code) }}
+          <input data-path="{{ p }}description" value="{{ l.description }}"
+            placeholder="{{ 'e.g. English-speaking guide, full day' if l.type == 'guide' else 'e.g. Transport from Night Safari (2 way)' }}">
+          <input class="sup" data-path="{{ p }}supplier" placeholder="Supplier" list="supplierList" value="{{ l.supplier }}">
+        {% endif %}
+        </td>
+        {% if l.type in ("ticket", "meal") %}
+        <td><div class="pax2"><label>A{{ num(p ~ "adults", l.adults) }}</label><label>C{{ num(p ~ "children", l.children) }}</label></div></td>
+        <td><div class="pax2"><label>A{{ num(p ~ "adultPrice", l.adultPrice, "0.01", cls="n price") }}</label><label>C{{ num(p ~ "childPrice", l.childPrice, "0.01", cls="n price") }}</label></div></td>
+        {% else %}
+        <td><div class="pax2"><label>Qty{{ num(p ~ "qty", l.qty, min="1") }}</label></div></td>
+        <td><div class="pax2"><label>Price{{ num(p ~ "unitPrice", l.unitPrice, "0.01", cls="n price") }}</label></div></td>
+        {% endif %}
+        <td class="amt" data-out="{{ p }}total">{{ line_total(l)|num }}</td>
+        <td><button type="button" class="btn small ghost danger" data-action="del_line" data-day="{{ d }}" data-index="{{ i }}" title="Remove">✕</button></td>
+      </tr>
+    {% else %}
+      <tr><td colspan="6" class="muted empty-day">Nothing on this day yet. Type a ticket, transfer or guide code, or use the buttons below.</td></tr>
+    {% endfor %}
+    </tbody></table></div>
+    <div class="day-add">
+      <div class="cashier"><svg class="cashier-icon" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+        <input class="code-in" data-day="{{ d }}" data-focus="code.{{ d }}" list="codeList" placeholder="Ticket, transfer or guide code, then Enter" autocomplete="off"></div>
+      <select class="tr-pick" data-day="{{ d }}">
+        <option value="">Custom transport line</option>
+        {% for t in prices.transport %}<option value="{{ t.id }}">{{ (t.code ~ ' — ') if t.code }}{{ t.name }} — {{ t.price|num }}</option>{% endfor %}
+      </select>
+      <button type="button" class="btn" data-action="add_transport" data-day="{{ d }}">+ Transport</button>
+    </div>
+    <div class="day-add day-extras">
+      {% for m in meals %}<button type="button" class="btn small" data-action="add_meal" data-meal="{{ m }}" data-day="{{ d }}">+ {{ m }}</button>{% endfor %}
+      <button type="button" class="btn small" data-action="add_guide" data-day="{{ d }}">+ Guide</button>
+    </div>
+    <div class="msg" data-day-msg="{{ d }}"></div>
+  </div>
+  {% endfor %}
+  <button type="button" class="btn add-day" data-action="add_day">+ Add day</button>
+</div>
+
+<div class="card">
+  <div class="card-title"><span class="step">3</span>Hotel</div>
+  <div class="scroll"><table class="lines hotel-table">
+    <thead><tr><th>Hotel</th><th>Booked by / supplier</th><th class="num">Amount</th><th></th></tr></thead>
+    <tbody>
+    {% for h in draft.hotels %}{% set p = "hotels.%d."|format(loop.index0) %}
+      <tr><td><input data-path="{{ p }}description" placeholder="e.g. Grand Central (3 nights)" value="{{ h.description }}"></td>
+        <td><input data-path="{{ p }}supplier" list="supplierList" placeholder="e.g. Booked direct" value="{{ h.supplier }}"></td>
+        <td class="num">{{ num(p ~ "amount", h.amount, "0.01", cls="n price") }}</td>
+        <td><button type="button" class="btn small ghost danger" data-action="del_hotel" data-index="{{ loop.index0 }}" title="Remove">✕</button></td></tr>
+    {% else %}<tr><td colspan="4" class="muted">No hotel on this quote.</td></tr>{% endfor %}
+    </tbody></table></div>
+  <button type="button" class="btn small-add" data-action="add_hotel">+ Add hotel</button>
+</div>
+
+{% if draft.group %}
+<div class="card">
+  <div class="card-title"><span class="step">4</span>Additional charges <span class="hint" style="margin-left:auto">group quotes; pick one or type your own</span></div>
+  <datalist id="extraList">{% for x in extras %}<option value="{{ x }}">{% endfor %}</datalist>
+  <div class="scroll"><table class="lines hotel-table">
+    <thead><tr><th>Charge</th><th>Supplier <span class="hint">fill in to show on the supplier report</span></th><th class="num">Amount</th><th></th></tr></thead>
+    <tbody>
+    {% for h in draft.additional %}{% set p = "additional.%d."|format(loop.index0) %}
+      <tr><td><input data-path="{{ p }}description" list="extraList" placeholder="e.g. Coach / bus" value="{{ h.description }}"></td>
+        <td><input data-path="{{ p }}supplier" list="supplierList" placeholder="Optional" value="{{ h.supplier }}"></td>
+        <td class="num">{{ num(p ~ "amount", h.amount, "0.01", cls="n price") }}</td>
+        <td><button type="button" class="btn small ghost danger" data-action="del_extra" data-index="{{ loop.index0 }}" title="Remove">✕</button></td></tr>
+    {% else %}<tr><td colspan="4" class="muted">No additional charges.</td></tr>{% endfor %}
+    </tbody></table></div>
+  <button type="button" class="btn small-add" data-action="add_extra">+ Add charge</button>
+</div>
+{% else %}
+  {% for h in draft.additional %}{# kept (but not counted) if you switch back to Group #}
+  {{ hidden("additional.%d.description"|format(loop.index0), h.description) }}{{ hidden("additional.%d.supplier"|format(loop.index0), h.supplier) }}{{ hidden("additional.%d.amount"|format(loop.index0), h.amount) }}
+  {% endfor %}
+{% endif %}

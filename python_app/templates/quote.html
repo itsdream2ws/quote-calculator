@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block title %}{{ 'Editing ' ~ draft.quoteNumber if draft.id else 'New quote' }} · Quote Calculator{% endblock %}
+{% block content %}
+<header class="page-head">
+  <div>
+    <h1 id="heading">{{ 'Editing quote ' ~ draft.quoteNumber if draft.id else 'New quote' }}</h1>
+    <p class="page-sub">Plan it day by day: type ticket, transfer and guide codes like a till, add meals, then the hotel.</p>
+  </div>
+  <button type="button" class="btn" id="newBtn">+ Start a new quote</button>
+</header>
+
+{# Everything with data-path inside #draftForm is part of the quote being edited. #}
+<div class="grid2" id="draftForm">
+  <div class="stack" id="editor">{% include "_quote_editor.html" %}</div>
+
+  <aside class="summary sticky" id="summary">
+    <div class="total-hero">
+      <div class="total-label">Quote total</div>
+      <div class="total-value" data-out="tGrand">0.00</div>
+      <div class="total-pax" data-out="tPax"></div>
+    </div>
+    <div class="summary-body">
+      <dl class="totals">
+        <dt>Attractions</dt><dd data-out="tTickets"></dd>
+        <dt>Transport</dt><dd data-out="tTransport"></dd>
+        <dt>Meals &amp; guides</dt><dd data-out="tMeals"></dd>
+        <dt>Hotel</dt><dd data-out="tHotel"></dd>
+        <dt data-if-group>Additional charges</dt><dd data-if-group data-out="tExtra"></dd>
+        <dt>Profit <span class="hint">{{ {'service': 'shown as Service charge', 'hide': 'hidden from client', 'profit': 'shown as PROFIT'}[settings.profitDisplay] }}</span></dt>
+        <dd><input data-path="serviceCharge" data-type="number" type="number" min="0" step="0.01" class="inline-num" aria-label="Profit" value="{{ draft.serviceCharge }}"></dd>
+      </dl>
+      <div id="errors" class="errors hidden"></div>
+      <div id="warnings" class="warnings hidden"></div>
+      <label class="switch"><input type="checkbox" data-path="itemised" data-type="checkbox" {{ 'checked' if draft.itemised }}><span class="slider"></span> Itemised <span class="hint">show line totals</span></label>
+      <div class="btncol">
+        <button type="button" class="btn primary big" data-save>Save quote</button>
+        <div class="btnpair">
+          <button type="button" class="btn" data-save="pdf">Save + PDF</button>
+          <button type="button" class="btn" data-save="png">Save + PNG</button>
+        </div>
+        <button type="button" class="btn ghost" data-preview>Preview the quote</button>
+      </div>
+      <div id="saveMsg" class="msg {{ 'ok' if note }}">{{ note }}</div>
+    </div>
+  </aside>
+</div>
+<div class="mobile-bar"><div><span>Quote total</span><b data-out="mTotal">0.00</b></div><button type="button" class="btn primary" data-save>Save</button></div>
+
+<div id="previewModal" class="modal hidden">
+  <div class="modal-inner">
+    <div class="modal-bar">
+      <span class="muted small">Preview. Save to download.</span>
+      <button type="button" class="btn ghost" data-close>Close</button>
+    </div>
+    <div class="paper-wrap"><img class="preview-img" alt="Preview of the quote"></div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='editor.js') }}"></script>
+<script>
+  Editor.start({
+    url: "/quote",                 // app.py has /quote/check, /quote/action, /quote/save, /quote/preview
+    storageKey: "qc.py.draft",     // the unsaved quote is kept in the browser, so a refresh doesn't lose it
+    restore: {{ 'true' if restore else 'false' }},
+    newUrl: "/quote?new=1",
+    fileUrl: (id) => "/quotes/" + id + "/file.",
+    heading: (number) => "Editing quote " + number,
+    hasContent: (d) => d.clientName || d.hotels.length || d.days.some((day) => day.lines.length),
+  });
+</script>
+{% endblock %}

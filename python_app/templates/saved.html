@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}Saved quotes · Quote Calculator{% endblock %}
+{% block content %}
+<header class="page-head">
+  <div><h1>Saved quotes</h1><p class="page-sub">Every quote on this Mac, yours and (after a sync) everyone else's. Re-download, edit or copy any of them.</p></div>
+</header>
+<div class="card">
+  <form class="row filters" method="get">
+    <label class="grow">Search<input name="q" type="search" value="{{ search }}" placeholder="Client, quote number or agent"></label>
+    <label>From<input name="from" type="date" value="{{ date_from }}"></label>
+    <label>To<input name="to" type="date" value="{{ date_to }}"></label>
+    <div class="formbtns"><button class="btn primary">Search</button>{% if search or date_from or date_to %}<a class="btn ghost" href="{{ url_for('saved_quotes') }}">Clear</a>{% endif %}</div>
+  </form>
+  <div class="scroll">
+    <table class="list">
+      <thead><tr><th>Date</th><th>Quote no.</th><th>Client</th><th>Pax</th><th>Agent</th><th class="num">Total</th><th></th></tr></thead>
+      <tbody>
+      {% for q in rows %}
+        <tr>
+          <td>{{ q.date|date }}</td>
+          <td>{{ q.quoteNumber }}{% if q.id in unsent_ids %} <span class="pill unsent" title="Saved on this Mac; sent at the next sync">Not sent</span>{% endif %}</td>
+          <td>{{ q.clientName }}{% if q.quoteType == 'group' %} <span class="pill ok">Group</span>{% endif %}</td>
+          <td>{{ pax_label(q.adults, q.children) if q.adults is not none }}</td>
+          <td>{{ q.createdBy }}</td>
+          <td class="num">{{ q.currency }} {{ q.total|num }}</td>
+          <td class="actions">
+            <a class="btn small" href="{{ url_for('quote_view', qid=q.id) }}">View / download</a>
+            <a class="btn small" href="{{ url_for('quote_page', edit=q.id) }}">Edit</a>
+            <a class="btn small" href="{{ url_for('quote_page', copy=q.id) }}">Copy as new</a>
+            <form class="inline" method="post" action="{{ url_for('quote_delete', qid=q.id) }}"
+                  data-confirm="Delete quote {{ q.quoteNumber }} for {{ q.clientName }}? This cannot be undone.">
+              <button class="btn small ghost danger">Delete</button></form>
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% if not rows %}<div class="empty">{{ 'No quotes match.' if any_saved else 'No saved quotes yet.' }}</div>{% endif %}
+</div>
+{% endblock %}
