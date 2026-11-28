@@ -1,802 +1,787 @@
-"""Quote Calculator for Mac: the web pages, served on this computer only.
+"""The Quote Calculator window (made with Tkinter, which comes with Python).
 
-Start it with  python3 app.py  (or double-click "Start Quote Calculator.command"), and it opens
-http://127.0.0.1:5055 in your browser.
+Start it with:  python3 app.py   (or double-click "Start Quote Calculator.command")
 
-How the pieces fit together:
-  app.py           this file: one function per page or button ("routes")
-  quotes.py        travel quote rules: totals, checks, the buttons on the quote page
-  invoices.py      proforma invoice rules
-  prices.py        price list rules (codes, expiry, monthly confirm)
-  report.py        the supplier report
-  exports.py       drawing the PDF and PNG
-  store.py         the database file on this Mac (works offline)
-  sync.py          sending and fetching data to and from Supabase
-  supabase_api.py  the actual internet calls to Supabase
-  templates/       the HTML of each page (Jinja templates)
-  static/          styles.css, editor.js (the small bit of JavaScript), fonts
+The window has 4 tabs, and each tab is one class below:
+  QuoteTab    make or edit a quote
+  SavedTab    the saved quotes: open, copy, PDF, delete
+  PricesTab   the price list (tickets, transport, guides): changes need internet
+  ReportTab   the supplier report for a month, by travel date
 
-Saving a quote never needs internet: it is saved on this Mac, then sent to Supabase straight
-away if there is a connection, or at the next sync. Changing the price list or settings does
-need internet, so every Mac always has the same prices.
+The rules (totals, checks, numbers) are in rules.py, saving and syncing in data.py and the PDF in
+pdf.py. This file only shows things on screen and reacts to clicks.
+
+Tkinter in one minute:
+  ttk.Label / ttk.Entry / ttk.Button ...   a widget (something on screen)
+  .grid(row=, column=) or .pack()          puts it in its parent
+  tk.StringVar()                           holds the text of an Entry; .get() reads it, .set() changes it
+  var.trace_add("write", function)         runs function every time the text changes
+  ttk.Treeview                             a table (rows can have rows inside them, like folders)
 """
-import base64
-import io
-import json
-import secrets
-import threading
-import webbrowser
-from urllib.parse import urlencode
+import subprocess
+import sys
+import tkinter as tk
+from tkinter import ttk, messagebox, filedialog
 
-from flask import (Flask, Response, flash, jsonify, redirect, render_template, request,
-                   send_file, url_for)
-
-import config
-import exports
-import invoices as inv
-import prices as pl
-import quotes as qt
-import report as rp
-import store
-import supabase_api as api
-import sync
-from helpers import (fmt_num, fmt_date, weekday, money, pax_label, today, now_iso, new_id, is_valid_date,
-                     month_range, to_number, round2, add_days)
-
-app = Flask(__name__)
-
-DEFAULT_SETTINGS = {"businessName": "Your Business Name", "businessDetails": "", "currency": "SGD",
-                    "defaultServiceCharge": 0, "profitDisplay": "service",
-                    "footer": "Prices are subject to availability at the time of booking."}
+import data
+import pdf
+import rules
 
 
-def secret_key():
-    """Flask needs a secret to sign its cookies. Made once and kept in the data folder."""
-    key = store.get("flask_secret")
-    if not key:
-        key = secrets.token_hex(32)
-        store.put("flask_secret", key)
-    return key
+def show(value):
+    """A number as text for a box: 14.0 -> '14', 14.5 -> '14.5'. Text stays as it is."""
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return f"{value:.2f}".rstrip("0").rstrip(".")
+    return "" if value is None else str(value)
 
 
-app.secret_key = secret_key()
+def open_file(path):
+    """Open a file with the Mac's own app (a PDF opens in Preview)."""
+    subprocess.run(["open" if sys.platform == "darwin" else "xdg-open", str(path)], check=False)
 
 
-# ---------------------------------------------------------------- shared bits for every page
-
-def settings():
-    return {**DEFAULT_SETTINGS, **(store.get("settings") or {})}
-
-
-def price_list():
-    return store.get("prices") or pl.empty_price_list()
-
-
-def agent():
-    return (sync.current_login() or {}).get("agent", "")
-
-
-@app.template_filter("num")
-def _num(n):
-    return fmt_num(n or 0)
+def make_table(parent, columns, height=12):
+    """A table with headings and a scroll bar. columns: [(name, heading, width), ...]"""
+    frame = ttk.Frame(parent)
+    tree = ttk.Treeview(frame, columns=[c[0] for c in columns], height=height, selectmode="browse")
+    for name, heading, width in columns:
+        tree.heading(name, text=heading, anchor="w")
+        tree.column(name, width=width, anchor="e" if heading in ("Total", "Price", "Adult", "Child") else "w")
+    bar = ttk.Scrollbar(frame, orient="vertical", command=tree.yview)
+    tree.configure(yscrollcommand=bar.set)
+    tree.pack(side="left", fill="both", expand=True)
+    bar.pack(side="right", fill="y")
+    return frame, tree
 
 
-@app.template_filter("date")
-def _date(s):
-    return fmt_date(s)
+# =============================================================== the main window
 
+class App(tk.Tk):
+    def __init__(self):
+        super().__init__()
+        self.title("Quote Calculator")
+        self.geometry("1250x800")
 
-app.jinja_env.globals.update(pax_label=pax_label, weekday=weekday, ticket_status=pl.ticket_status, adult_price=pl.adult_price,
-                             child_price=pl.child_price, meals=qt.MEALS, line_total=qt.line_total)
+        top = ttk.Frame(self, padding=(10, 8))
+        top.pack(fill="x")
+        self.status = ttk.Label(top)
+        self.status.pack(side="left")
+        ttk.Button(top, text="Log out", command=self.log_out).pack(side="right")
+        ttk.Button(top, text="Sync now", command=self.sync).pack(side="right", padx=6)
 
+        self.tabs = ttk.Notebook(self)
+        self.tabs.pack(fill="both", expand=True, padx=10, pady=(0, 10))
+        self.quote_tab = QuoteTab(self.tabs, self)
+        self.saved_tab = SavedTab(self.tabs, self)
+        self.prices_tab = PricesTab(self.tabs, self)
+        self.report_tab = ReportTab(self.tabs, self)
+        for tab, name in ((self.quote_tab, "New quote"), (self.saved_tab, "Saved quotes"),
+                          (self.prices_tab, "Price list"), (self.report_tab, "Supplier report")):
+            self.tabs.add(tab, text=name, padding=10)
+        # every time a tab is opened, show its latest data
+        self.tabs.bind("<<NotebookTabChanged>>", lambda e: self.tabs.nametowidget(self.tabs.select()).refresh())
+        self.protocol("WM_DELETE_WINDOW", self.quit_app)
+        self.after(100, self.start)
 
-@app.context_processor
-def page_globals():
-    p = price_list()
-    return {"agent": agent(), "brand": settings().get("businessName") or "Quote Calculator",
-            "unsent": store.unsent_count(), "last_sync": store.get("last_sync"),
-            "price_alerts": sum(1 for t in p["tickets"] if pl.ticket_status(t)[0] != "ok")}
+    def start(self):
+        if not data.agent():
+            LoginWindow(self)                      # waits until the agent has logged in
+        self.sync(quiet=True)
 
-
-@app.before_request
-def only_from_this_app():
-    """The app runs on your own Mac. Refuse requests sent by other websites open in the browser."""
-    allowed = {f"{config.HOST}:{config.PORT}", f"localhost:{config.PORT}"}
-    if request.host not in allowed and not app.testing:
-        return Response("Open the app at http://127.0.0.1:%d/" % config.PORT, 403)
-    origin = request.headers.get("Origin")
-    if request.method == "POST" and origin and origin.split("://", 1)[-1] not in allowed and not app.testing:
-        return Response("Blocked: that request came from another website.", 403)
-
-
-@app.before_request
-def require_login():
-    if request.endpoint not in ("login", "static") and not sync.current_login():
-        return redirect(url_for("login"))
-
-
-def back(default="quote_page"):
-    """Go back to the page the button was on."""
-    return redirect(request.referrer or url_for(default))
-
-
-def online(action, done_message):
-    """Run something that needs Supabase (like changing the price list), then refresh the
-    price list on this Mac. Shows done_message, or what went wrong."""
-    try:
-        token = sync.fresh_token()
-        action(token)
-        store.put("prices", api.download_prices(token))
-        flash(done_message, "ok")
-        return True
-    except api.SupabaseError as e:
-        flash(("You are offline. " if e.offline else "") + f"Not saved: {e}", "err")
-        return False
-
-
-# ---------------------------------------------------------------- logging in and syncing
-
-@app.route("/login", methods=["GET", "POST"])
-def login():
-    if request.method == "POST":
-        code, password = request.form.get("agent", "").strip(), request.form.get("password", "")
-        if not code or not password:
-            flash("Enter your agent code and password.", "err")
-            return render_template("login.html", code=code)
+    def online(self, work):
+        """Run work() (something that needs internet) with a busy mouse pointer.
+        Returns True if it worked; shows the problem and returns False if not."""
+        self.config(cursor="watch")
+        self.update()
         try:
-            session = api.sign_in(code, password)
-        except api.SupabaseError as e:
-            flash(("Logging in needs internet the first time. " if e.offline else "") + str(e), "err")
-            return render_template("login.html", code=code)
-        old = sync.current_login()
-        if old and old.get("user_id") != session["user_id"] and store.unsent_count():
-            flash("Another agent's quotes on this Mac have not been sent yet. Log in as them and sync first.", "err")
-            return render_template("login.html", code=code)
-        session["agent"] = api.agent_code(session["email"])
-        store.put("login", session)
-        try:
-            sync.sync_now()
-            flash("Logged in and synced.", "ok")
-        except api.SupabaseError as e:
-            flash(f"Logged in, but the sync failed: {e}", "err")
-        return redirect(url_for("quote_page"))
-    return render_template("login.html", code="")
-
-
-@app.post("/logout")
-def logout():
-    if store.unsent_count():
-        flash("Some quotes are not sent to Supabase yet. Click Sync now (with internet) before logging out.", "err")
-        return back()
-    api.sign_out(sync.current_login())
-    store.remove("login")
-    return redirect(url_for("login"))
-
-
-@app.post("/sync")
-def sync_page():
-    try:
-        s = sync.sync_now()
-        text = f"Synced. Sent {s['sent']}, received {s['received']} new."
-        if s["renumbered"]:
-            text += " These numbers were already used online, so they were changed: " + ", ".join(s["renumbered"]) + "."
-        flash(text, "ok")
-    except api.SupabaseError as e:
-        flash(("No internet. Your work is saved on this Mac and will be sent at the next sync." if e.offline
-               else f"Sync failed: {e}"), "err")
-    return back()
-
-
-def push_one(kind, record):
-    """Try to send one saved quote/invoice straight away. Offline is fine: it waits for the next sync."""
-    try:
-        token = sync.fresh_token()
-        row = sync.TABLES[kind][2](record)
-        api.upsert(token, sync.TABLES[kind][0], [row], "id")
-        store.save_record(kind, record, dirty=False)
-        return True
-    except api.SupabaseError:
-        return False
-
-
-# ================================================================ TRAVEL QUOTE PAGE
-
-@app.get("/")
-def home():
-    return redirect(url_for("quote_page"))
-
-
-@app.get("/quote")
-def quote_page():
-    s = settings()
-    draft, note = None, ""
-    if request.args.get("edit"):
-        q = store.get_record("quote", request.args["edit"])
-        draft = qt.draft_from_quote(q) if q else None
-    elif request.args.get("copy"):
-        q = store.get_record("quote", request.args["copy"])
-        if q:
-            draft = qt.draft_from_quote(q)
-            draft.update(id=None, quoteNumber=None, createdBy="", date=today())
-            note = "Copied. This will save as a new quote."
-    restore = draft is None and not request.args.get("new")  # the page may bring back an unsaved draft
-    draft = qt.clean_draft(draft or qt.blank_draft(s), s)
-    return render_template("quote.html", draft=draft, restore=restore, note=note, **quote_editor_parts(draft))
-
-
-def quote_editor_parts(draft):
-    p = price_list()
-    quotes = store.all_records("quote")
-    return {"prices": p, "settings": settings(), "codes": qt.picker_options(p),
-            "supplier_names": pl.suppliers(p, quotes), "extras": qt.extra_suggestions(quotes)}
-
-
-def quote_check(draft, show_errors):
-    """What the page shows next to the form: totals, problems, line totals."""
-    p, s = price_list(), settings()
-    t = qt.calc(draft)
-    errors, warnings, bad = qt.validate(draft, p)
-    cur = s.get("currency", "")
-    out = {f"days.{di}.lines.{li}.total": fmt_num(qt.line_total(l))
-           for di, day in enumerate(draft["days"]) for li, l in enumerate(day["lines"])}
-    out.update({f"days.{di}.subtotal": fmt_num(sum(qt.line_total(l) for l in day["lines"])) if day["lines"] else ""
-                for di, day in enumerate(draft["days"])})
-    out.update({"tTickets": money(t["tickets"], cur), "tTransport": money(t["transport"], cur),
-                "tMeals": money(t["meals"] + t["guides"], cur), "tHotel": money(t["hotel"], cur),
-                "tExtra": money(t["additional"], cur), "tGrand": money(t["total"], cur), "mTotal": money(t["total"], cur),
-                "tPax": (draft["clientName"] + " · " if draft["clientName"] else "") + pax_label(draft["adults"], draft["children"])
-                        + (" · Group" if draft["group"] else "")})
-    return {"out": out, "errors": errors if show_errors else [], "warnings": warnings,
-            "bad": bad if show_errors else [], "edited": qt.edited_prices(draft, p), "ok": not errors}
-
-
-@app.post("/quote/check")
-def quote_check_route():
-    body = request.get_json()
-    return jsonify(quote_check(qt.clean_draft(body.get("draft"), settings()), body.get("showErrors")))
-
-
-@app.post("/quote/action")
-def quote_action():
-    """A button on the quote page (add a line, remove a day...): change the draft, redraw the form."""
-    body = request.get_json()
-    draft = qt.clean_draft(body.get("draft"), settings())
-    message, kind, focus = qt.apply_action(draft, body.get("action") or {}, price_list())
-    html = render_template("_quote_editor.html", draft=draft, **quote_editor_parts(draft))
-    return jsonify({"draft": draft, "html": html, "message": message, "kind": kind, "focus": focus,
-                    "day": (body.get("action") or {}).get("day"),
-                    "check": quote_check(draft, body.get("showErrors"))})
-
-
-@app.post("/quote/save")
-def quote_save():
-    s = settings()
-    draft = qt.clean_draft(request.get_json().get("draft"), s)
-    check = quote_check(draft, True)
-    if not check["ok"]:
-        return jsonify({"saved": False, "check": check, "message": "Not saved. Fix the highlighted fields."})
-    existing = store.get_record("quote", draft["id"]) if draft["id"] else None
-    now = now_iso()
-    q = {"id": draft["id"] or new_id(),
-         "quoteNumber": existing["quoteNumber"] if existing else qt.next_quote_number(store.all_records("quote"), draft["date"], agent())}
-    q.update(qt.build_quote(draft, s))
-    q.update(createdAt=existing.get("createdAt", now) if existing else now, updatedAt=now,
-             createdBy=(existing.get("createdBy") or "") if existing else agent(), updatedBy=agent())
-    store.save_record("quote", q)
-    sent = push_one("quote", q)
-    draft.update(id=q["id"], quoteNumber=q["quoteNumber"])
-    return jsonify({"saved": True, "id": q["id"], "number": q["quoteNumber"], "draft": draft, "check": check,
-                    "message": f"Saved as {q['quoteNumber']} ({fmt_date(q['date'])})."
-                               + ("" if sent else " Offline: it will be sent at the next sync.")})
-
-
-@app.post("/quote/preview")
-def quote_preview():
-    """Picture of the quote as it is now, before saving."""
-    body = request.get_json()
-    s = settings()
-    draft = qt.clean_draft(body.get("draft"), s)
-    q = {"quoteNumber": draft.get("quoteNumber") or "(not saved yet)", **qt.build_quote(draft, s)}
-    return send_file(io.BytesIO(exports.quote_file(q, s, "png", body.get("itemised", True))), mimetype="image/png")
-
-
-# ================================================================ SAVED QUOTES
-
-@app.get("/quotes")
-def saved_quotes():
-    search, date_from, date_to = (request.args.get(k, "").strip() for k in ("q", "from", "to"))
-    rows = [q for q in store.all_records("quote")
-            if (not search or search.lower() in " ".join([q.get("clientName", ""), q.get("quoteNumber", ""),
-                                                          q.get("createdBy", "")]).lower())
-            and (not date_from or q["date"] >= date_from) and (not date_to or q["date"] <= date_to)]
-    rows.sort(key=lambda q: (q["date"], q["quoteNumber"]), reverse=True)
-    return render_template("saved.html", rows=rows, search=search, date_from=date_from, date_to=date_to,
-                           any_saved=bool(store.all_records("quote")),
-                           unsent_ids={r["id"] for r, _ in store.unsent("quote")})
-
-
-@app.get("/quotes/<qid>")
-def quote_view(qid):
-    q = store.get_record("quote", qid)
-    if not q:
-        flash("That quote is not on this Mac.", "err")
-        return redirect(url_for("saved_quotes"))
-    itemised = request.args.get("itemised", "1" if q.get("itemised", True) else "0") == "1"
-    return render_template("view.html", kind="quote", record=q, itemised=itemised,
-                           title=f"{q['quoteNumber']} · {q.get('clientName', '')}")
-
-
-@app.get("/quotes/<qid>/file.<ext>")
-def quote_download(qid, ext):
-    q = store.get_record("quote", qid)
-    if not q or ext not in ("pdf", "png"):
-        return Response("Not found", 404)
-    itemised = request.args.get("itemised", "1") == "1"
-    data = exports.quote_file(qt.normalise_saved(q), settings(), ext, itemised)
-    return send_file(io.BytesIO(data), mimetype="application/pdf" if ext == "pdf" else "image/png",
-                     as_attachment=request.args.get("download") == "1",
-                     download_name=exports.quote_filename(q, itemised, ext))
-
-
-@app.post("/quotes/<qid>/delete")
-def quote_delete(qid):
-    q = store.get_record("quote", qid)
-    if q:
-        store.delete_record("quote", qid)
-        try:
-            sync.sync_now()
-        except api.SupabaseError:
-            pass  # offline: the delete is sent at the next sync
-        flash(f"Deleted {q['quoteNumber']}.", "ok")
-    return redirect(url_for("saved_quotes"))
-
-
-# ================================================================ PRICE LIST (needs internet)
-
-@app.get("/prices")
-def prices_page():
-    p = price_list()
-    f = {k: request.args.get(k, "").strip().lower() for k in ("tf", "rf", "gf")}
-    match = lambda t, text: not text or text in " ".join([t.get("code") or "", t["name"], t["supplier"]]).lower()
-    tickets = sorted((t for t in p["tickets"] if match(t, f["tf"])), key=lambda t: t["code"])
-    transport = sorted((t for t in p["transport"] if match(t, f["rf"])), key=lambda t: t.get("code") or "~" + t["name"])
-    guides = sorted((t for t in p["guides"] if match(t, f["gf"])), key=lambda t: t["code"])
-    edit = {"ticket": pl.find_ticket(p, request.args.get("edit_ticket", "")),
-            "transport": next((t for t in p["transport"] if t["id"] == request.args.get("edit_transport")), None),
-            "guide": next((t for t in p["guides"] if t["id"] == request.args.get("edit_guide")), None)}
-    statuses = [pl.ticket_status(t) for t in p["tickets"]]
-    return render_template("prices.html", tickets=tickets, transport=transport, guides=guides, edit=edit, f=f,
-                           expired=sum(1 for s in statuses if s[0] == "bad"),
-                           unconfirmed=sum(1 for s in statuses if s[1] == "Confirm for this month"),
-                           supplier_names=pl.suppliers(p))
-
-
-@app.post("/prices/ticket")
-def ticket_save():
-    p = price_list()
-    editing = request.form.get("editing", "")
-    ticket, error = pl.check_ticket_form(p, request.form, editing)
-    if error:
-        flash(error, "err")
-        return redirect(url_for("prices_page", edit_ticket=editing) if editing else url_for("prices_page"))
-
-    def write(token):
-        api.upsert(token, "tickets", [api.ticket_to_row(ticket)], "code")
-        if editing and editing != ticket["code"]:  # the code was changed: remove the old row
-            api.delete(token, "tickets", "code", editing)
-    online(write, ("Updated " if editing else "Added ") + ticket["code"] + ".")
-    return redirect(url_for("prices_page"))
-
-
-@app.post("/prices/ticket/<code>/confirm")
-def ticket_confirm(code):
-    t = pl.find_ticket(price_list(), code)
-    if t:
-        t = {**t, "confirmedAt": today()}
-        online(lambda token: api.upsert(token, "tickets", [api.ticket_to_row(t)], "code"), f"Confirmed {code} for this month.")
-    return redirect(url_for("prices_page"))
-
-
-@app.post("/prices/confirm-all")
-def tickets_confirm_all():
-    p = price_list()
-    ok = [{**t, "confirmedAt": today()} for t in p["tickets"] if pl.ticket_status(t)[0] != "bad"]
-    skipped = len(p["tickets"]) - len(ok)
-    online(lambda token: api.upsert(token, "tickets", [api.ticket_to_row(t) for t in ok], "code"),
-           f"Confirmed {len(ok)} price(s)." + (f" {skipped} expired price(s) skipped: edit them with the new price and date." if skipped else ""))
-    return redirect(url_for("prices_page"))
-
-
-@app.post("/prices/ticket/<code>/delete")
-def ticket_delete(code):
-    online(lambda token: api.delete(token, "tickets", "code", code), f"Deleted {code}. Saved quotes keep their copy.")
-    return redirect(url_for("prices_page"))
-
-
-@app.post("/prices/<kind>")
-def item_save(kind):
-    if kind not in ("transport", "guide"):
-        return Response("Not found", 404)
-    editing = request.form.get("editing", "")
-    item, error = pl.check_simple_form(price_list(), request.form, kind, editing)
-    if error:
-        flash(error, "err")
-        return redirect(url_for("prices_page", **({f"edit_{kind}": editing} if editing else {})))
-    table = "transport_items" if kind == "transport" else "guide_items"
-    online(lambda token: api.upsert(token, table, [api.item_to_row(item)], "id"),
-           ("Updated " if editing else "Added ") + item["code"] + ".")
-    return redirect(url_for("prices_page"))
-
-
-@app.post("/prices/<kind>/<item_id>/delete")
-def item_delete(kind, item_id):
-    if kind not in ("transport", "guide"):
-        return Response("Not found", 404)
-    table = "transport_items" if kind == "transport" else "guide_items"
-    online(lambda token: api.delete(token, table, "id", item_id), "Deleted.")
-    return redirect(url_for("prices_page"))
-
-
-# ================================================================ PROFORMA INVOICE PAGE
-
-def my_letterhead():
-    return inv.letterhead(store.get("profiles") or {}, agent(), settings())
-
-
-@app.get("/invoice")
-def invoice_page():
-    invoices = store.all_records("invoice")
-    profiles = store.get("profiles") or {}
-    draft, note = None, ""
-    if request.args.get("edit"):
-        v = store.get_record("invoice", request.args["edit"])
-        draft = inv.draft_from_invoice(v) if v else None
-    elif request.args.get("copy"):
-        v = store.get_record("invoice", request.args["copy"])
-        if v:
-            draft = inv.draft_from_invoice(v)
-            p = my_letterhead()
-            draft.update(id=None, createdBy="", autoNumber=True, date=today(),
-                         invoiceNumber=inv.next_invoice_number(invoices, today(), agent()),
-                         validUntil=add_days(today(), int(p["validDays"])) if p.get("validDays") else "")
-            note = "Copied. This will save as a new invoice."
-    restore = draft is None and not request.args.get("new")
-    draft = inv.clean_draft(draft or inv.blank_draft(invoices, profiles, agent(), settings()))
-
-    search, date_from, date_to = (request.args.get(k, "").strip() for k in ("q", "from", "to"))
-    rows = [v for v in invoices
-            if (not search or search.lower() in " ".join([v.get("invoiceNumber", ""), (v.get("billTo") or {}).get("name", ""),
-                                                          v.get("reference", ""), v.get("createdBy", "")]).lower())
-            and (not date_from or v["date"] >= date_from) and (not date_to or v["date"] <= date_to)]
-    rows.sort(key=lambda v: (v["date"], v["invoiceNumber"]), reverse=True)
-    return render_template("invoice.html", draft=draft, restore=restore, note=note, logo=my_letterhead()["logo"],
-                           titles=inv.TITLES, rows=rows, search=search, date_from=date_from, date_to=date_to,
-                           any_saved=bool(invoices), line_amount=inv.line_amount)
-
-
-def invoice_check(draft, show_errors):
-    t = inv.calc(draft)
-    errors, bad = inv.validate(draft, store.all_records("invoice"))
-    cur = draft["currency"]
-    out = {f"items.{i}.amount": fmt_num(inv.line_amount(item)) for i, item in enumerate(draft["items"])}
-    n = len(draft["items"])
-    out.update({"invSub": money(t["subtotal"], cur), "invTaxAmt": money(t["tax"], cur), "invGrand": money(t["total"], cur),
-                "mTotal": money(t["total"], cur),
-                "invHeroSub": (draft["clientName"] + " · " if draft["clientName"] else "") + f"{n} line" + ("" if n == 1 else "s")})
-    return {"out": out, "errors": errors if show_errors else [], "warnings": [], "bad": bad if show_errors else [],
-            "edited": [], "ok": not errors}
-
-
-@app.post("/invoice/check")
-def invoice_check_route():
-    body = request.get_json()
-    return jsonify(invoice_check(inv.clean_draft(body.get("draft")), body.get("showErrors")))
-
-
-@app.post("/invoice/action")
-def invoice_action():
-    body = request.get_json()
-    draft = inv.clean_draft(body.get("draft"))
-    focus = inv.apply_action(draft, body.get("action") or {}, store.all_records("invoice"), agent())
-    html = render_template("_invoice_items.html", draft=draft, line_amount=inv.line_amount)
-    return jsonify({"draft": draft, "html": html, "focus": focus, "message": None,
-                    "check": invoice_check(draft, body.get("showErrors"))})
-
-
-@app.post("/invoice/save")
-def invoice_save():
-    draft = inv.clean_draft(request.get_json().get("draft"))
-    check = invoice_check(draft, True)
-    if not check["ok"]:
-        return jsonify({"saved": False, "check": check, "message": "Not saved. Fix the highlighted fields."})
-    existing = store.get_record("invoice", draft["id"]) if draft["id"] else None
-    now = now_iso()
-    v = {"id": draft["id"] or new_id(), "invoiceNumber": str(draft["invoiceNumber"]).strip(), **inv.build_invoice(draft),
-         "createdAt": existing.get("createdAt", now) if existing else now, "updatedAt": now,
-         "createdBy": (existing.get("createdBy") or "") if existing else agent(), "updatedBy": agent()}
-    store.save_record("invoice", v)
-    sent = push_one("invoice", v)
-    draft.update(id=v["id"], createdBy=v["createdBy"], autoNumber=False)
-    return jsonify({"saved": True, "id": v["id"], "number": v["invoiceNumber"], "draft": draft, "check": check,
-                    "message": f"Saved as {v['invoiceNumber']} ({fmt_date(v['date'])})."
-                               + ("" if sent else " Offline: it will be sent at the next sync.")})
-
-
-def logo_of(v):
-    """A saved invoice shows the logo of the agent who made it."""
-    who = v.get("createdBy") or agent()
-    return inv.letterhead(store.get("profiles") or {}, who, settings())["logo"]
-
-
-@app.post("/invoice/preview")
-def invoice_preview():
-    body = request.get_json()
-    draft = inv.clean_draft(body.get("draft"))
-    v = {"invoiceNumber": str(draft["invoiceNumber"] or "").strip() or "(not saved yet)", "createdBy": draft["createdBy"],
-         **inv.build_invoice(draft)}
-    return send_file(io.BytesIO(exports.invoice_file(v, logo_of(v), "png", body.get("itemised", True))), mimetype="image/png")
-
-
-@app.post("/invoice/letterhead")
-def letterhead_save():
-    """'Save as my default letterhead': your next invoices start with these details."""
-    d = inv.clean_draft(request.get_json().get("draft"))
-    if not str(d["companyName"]).strip():
-        return jsonify({"ok": False, "message": "Enter the company name first."})
-    rate = to_number(d["taxRate"])
-    save_my_profile({"companyName": d["companyName"].strip(), "companyDetails": d["companyDetails"].strip(),
-                     "payment": d["payment"].strip(), "terms": d["terms"].strip(), "taxLabel": d["taxLabel"].strip(),
-                     "taxRate": rate if rate is not None else 0})
-    return jsonify({"ok": True, "message": f"Saved to your login ({agent()}). Your new invoices start with these details."})
-
-
-def save_my_profile(patch):
-    """Change your letterhead here, then send it to Supabase (now, or at the next sync)."""
-    profiles = store.get("profiles") or {}
-    profiles[agent()] = {**profiles.get(agent(), {}), **patch}
-    store.put("profiles", profiles)
-    store.put("my_profile_dirty", True)
-    try:
-        token = sync.fresh_token()
-        api.save_my_profile(token, sync.current_login()["user_id"], profiles[agent()])
-        store.put("my_profile_dirty", False)
-    except api.SupabaseError:
-        pass  # sent at the next sync
-
-
-@app.post("/invoice/logo")
-def logo_upload():
-    """Shrink the uploaded picture to at most 600 x 240 pixels and save it to your letterhead."""
-    from PIL import Image, UnidentifiedImageError
-    f = request.files.get("logo")
-    if not f or not f.filename:
-        flash("Choose a picture first.", "err")
-        return redirect(url_for("invoice_page"))
-    try:
-        img = Image.open(f.stream)
-        img.load()
-    except (UnidentifiedImageError, OSError):
-        flash("That picture could not be opened. Use a PNG, JPG, WebP or GIF.", "err")
-        return redirect(url_for("invoice_page"))
-    img = img.convert("RGBA")
-    img.thumbnail((600, 240))
-    out = io.BytesIO()
-    img.save(out, format="PNG", optimize=True)
-    data_url = "data:image/png;base64," + base64.b64encode(out.getvalue()).decode()
-    if len(data_url) > 300_000:  # a big photo-like logo: JPEG on white is far smaller
-        flat = Image.new("RGB", img.size, (255, 255, 255))
-        flat.paste(img, mask=img.split()[3])
-        out = io.BytesIO()
-        flat.save(out, format="JPEG", quality=90)
-        data_url = "data:image/jpeg;base64," + base64.b64encode(out.getvalue()).decode()
-    save_my_profile({"logo": data_url})
-    flash(f"Logo saved to your login ({agent()}).", "ok")
-    return redirect(url_for("invoice_page"))
-
-
-@app.post("/invoice/logo/remove")
-def logo_remove():
-    save_my_profile({"logo": ""})
-    flash("Logo removed.", "ok")
-    return redirect(url_for("invoice_page"))
-
-
-@app.get("/invoices/<vid>")
-def invoice_view(vid):
-    v = store.get_record("invoice", vid)
-    if not v:
-        flash("That invoice is not on this Mac.", "err")
-        return redirect(url_for("invoice_page"))
-    itemised = request.args.get("itemised", "1" if v.get("itemised", True) else "0") == "1"
-    return render_template("view.html", kind="invoice", record=v, itemised=itemised,
-                           title=f"{v['invoiceNumber']} · {(v.get('billTo') or {}).get('name', '')}")
-
-
-@app.get("/invoices/<vid>/file.<ext>")
-def invoice_download(vid, ext):
-    v = store.get_record("invoice", vid)
-    if not v or ext not in ("pdf", "png"):
-        return Response("Not found", 404)
-    itemised = request.args.get("itemised", "1") == "1"
-    data = exports.invoice_file(v, logo_of(v), ext, itemised)
-    return send_file(io.BytesIO(data), mimetype="application/pdf" if ext == "pdf" else "image/png",
-                     as_attachment=request.args.get("download") == "1",
-                     download_name=exports.invoice_filename(v, itemised, ext))
-
-
-@app.post("/invoices/<vid>/delete")
-def invoice_delete(vid):
-    v = store.get_record("invoice", vid)
-    if v:
-        store.delete_record("invoice", vid)
-        try:
-            sync.sync_now()
-        except api.SupabaseError:
+            work()
+            return True
+        except data.OnlineError as e:
+            messagebox.showerror("Quote Calculator", str(e), parent=self)
+            return False
+        finally:
+            self.config(cursor="")
+            self.refresh_status()
+
+    def sync(self, quiet=False):
+        result = []
+        if self.online(lambda: result.append(data.sync_now())) and not quiet:
+            messagebox.showinfo("Sync", result[0], parent=self)
+        self.tabs.nametowidget(self.tabs.select()).refresh()
+
+    def refresh_status(self):
+        unsent = len(data.unsent_ids())
+        last = data.get("last_sync")
+        self.status.config(text=f"Logged in as {data.agent()}   ·   "
+                                + ("All quotes sent" if not unsent else f"{unsent} not sent yet (Sync now sends them)")
+                                + (f"   ·   last sync {last[:16].replace('T', ' ')} UTC" if last else ""))
+
+    def log_out(self):
+        question = "Log out of this Mac? You need internet to log in again."
+        if data.unsent_ids():
+            question += ("\n\nSome quotes aren't sent yet. They stay on this Mac and are sent at the first "
+                         "sync after you log in again.")
+        if messagebox.askyesno("Log out", question, parent=self):
+            data.put("login", None)
+            LoginWindow(self)
+            self.sync(quiet=True)
+
+    def quit_app(self):
+        if self.quote_tab.changed and not messagebox.askyesno(
+                "Quit", "The quote you are making isn't saved. Quit anyway?", parent=self):
+            return
+        self.destroy()
+
+
+class LoginWindow(tk.Toplevel):
+    """Asks for the agent code and password. Closing it closes the app."""
+
+    def __init__(self, app):
+        super().__init__(app)
+        self.app = app
+        self.title("Log in")
+        self.resizable(False, False)
+        box = ttk.Frame(self, padding=20)
+        box.pack()
+        ttk.Label(box, text="Log in to the Quote Calculator", font=("", 14, "bold")).grid(columnspan=2, pady=(0, 10))
+        self.agent, self.password = tk.StringVar(), tk.StringVar()
+        ttk.Label(box, text="Agent code").grid(row=1, column=0, sticky="w")
+        first = ttk.Entry(box, textvariable=self.agent)
+        first.grid(row=1, column=1, pady=3)
+        ttk.Label(box, text="Password").grid(row=2, column=0, sticky="w")
+        ttk.Entry(box, textvariable=self.password, show="•").grid(row=2, column=1, pady=3)
+        ttk.Button(box, text="Log in", command=self.log_in).grid(row=3, column=1, sticky="e", pady=(10, 0))
+        ttk.Label(box, text="Logging in needs internet the first time.", foreground="grey").grid(row=4, columnspan=2)
+        self.bind("<Return>", lambda e: self.log_in())
+        self.protocol("WM_DELETE_WINDOW", app.destroy)
+        first.focus_set()
+        self.transient(app)
+        self.wait_visibility()
+        self.grab_set()                            # the main window can't be used until logged in
+        app.wait_window(self)
+
+    def log_in(self):
+        if self.app.online(lambda: data.log_in(self.agent.get(), self.password.get())):
+            self.destroy()
+
+
+# =============================================================== New quote
+
+# The boxes shown under the table for the selected row: (label, key in the line, width)
+FIELDS = {
+    "day":       [("Date (YYYY-MM-DD)", "date", 14)],
+    "ticket":    [("Supplier", "supplier", 22), ("Adults", "adults", 5), ("Children", "children", 5),
+                  ("Adult price", "adultPrice", 8), ("Child price", "childPrice", 8)],
+    "meal":      [("Meal", "meal", 10), ("Description", "description", 22), ("Supplier", "supplier", 18),
+                  ("Adults", "adults", 5), ("Children", "children", 5), ("Adult price", "adultPrice", 8),
+                  ("Child price", "childPrice", 8)],
+    "transport": [("Description", "description", 30), ("Supplier", "supplier", 18), ("Qty", "qty", 5),
+                  ("Price", "unitPrice", 8)],
+    "hotel":     [("Hotel", "description", 30), ("Supplier", "supplier", 18), ("Amount", "amount", 10)],
+}
+FIELDS["guide"] = FIELDS["transport"]
+
+
+class QuoteTab(ttk.Frame):
+    def __init__(self, parent, app):
+        super().__init__(parent)
+        self.app = app
+        self.changed = False                       # True when there are changes that aren't saved
+
+        # ---- client, date, people, notes
+        head = ttk.Frame(self)
+        head.pack(fill="x")
+        self.vars = {key: tk.StringVar() for key in ("clientName", "date", "adults", "children", "notes", "serviceCharge")}
+        for col, (label, key, width) in enumerate([("Client *", "clientName", 28), ("Quote date *", "date", 11),
+                                                   ("Adults", "adults", 5), ("Children", "children", 5)]):
+            ttk.Label(head, text=label).grid(row=0, column=col * 2, sticky="w", padx=(0 if col == 0 else 12, 4))
+            ttk.Entry(head, textvariable=self.vars[key], width=width).grid(row=0, column=col * 2 + 1)
+        ttk.Label(head, text="Notes").grid(row=1, column=0, sticky="w", pady=(6, 0))
+        ttk.Entry(head, textvariable=self.vars["notes"], width=90).grid(row=1, column=1, columnspan=7, sticky="w", pady=(6, 0))
+        self.heading = ttk.Label(head, font=("", 13, "bold"))
+        self.heading.grid(row=0, column=8, padx=20)
+
+        body = ttk.Frame(self)
+        body.pack(fill="both", expand=True, pady=(10, 0))
+
+        # ---- the right side: totals and buttons
+        side = ttk.Frame(body, padding=(14, 0, 0, 0))
+        side.pack(side="right", fill="y")
+        self.totals = ttk.Frame(side)
+        self.totals.pack(anchor="w", fill="x")
+        row = ttk.Frame(side)
+        row.pack(anchor="w", pady=6)
+        ttk.Label(row, text="Profit / service charge").pack(side="left")
+        ttk.Entry(row, textvariable=self.vars["serviceCharge"], width=9).pack(side="left", padx=4)
+        self.total = ttk.Label(side, font=("", 20, "bold"))
+        self.total.pack(anchor="w", pady=6)
+        self.itemised = tk.BooleanVar()
+        ttk.Checkbutton(side, text="Itemised PDF (a price on every line)", variable=self.itemised,
+                        command=self.edited).pack(anchor="w", pady=4)
+        ttk.Button(side, text="Save quote", command=self.save).pack(fill="x", pady=(10, 2))
+        ttk.Button(side, text="Save + PDF", command=lambda: self.save(make_pdf=True)).pack(fill="x", pady=2)
+        ttk.Button(side, text="Start a new quote", command=self.new_quote).pack(fill="x", pady=(14, 2))
+        self.message = ttk.Label(side, wraplength=300, justify="left")
+        self.message.pack(anchor="w", pady=10)
+
+        # ---- the table of days and lines
+        table, self.tree = make_table(body, [("code", "Code", 60), ("item", "Item", 210), ("supplier", "Supplier", 130),
+                                             ("pax", "Pax / qty", 70), ("price", "Price", 120), ("total", "Total", 85)], 16)
+        self.tree.heading("#0", text="Day")
+        self.tree.column("#0", width=185)
+        table.pack(fill="both", expand=True)
+        self.tree.bind("<<TreeviewSelect>>", lambda e: self.show_fields())
+
+        # ---- buttons under the table
+        bar = ttk.Frame(body)
+        bar.pack(fill="x", pady=6)
+        ttk.Label(bar, text="Code").pack(side="left")
+        self.code = ttk.Combobox(bar, width=28, postcommand=self.fill_codes)
+        self.code.pack(side="left", padx=4)
+        self.code.bind("<Return>", lambda e: self.add_code())
+        self.code.bind("<<ComboboxSelected>>", lambda e: self.add_code())
+        ttk.Button(bar, text="Add", command=self.add_code).pack(side="left")
+        for text, command in (("+ Meal", lambda: self.add_line("meal")), ("+ Other transport", lambda: self.add_line("transport")),
+                              ("+ Hotel", self.add_hotel), ("+ Day", self.add_day)):
+            ttk.Button(bar, text=text, command=command).pack(side="left", padx=(8 if text == "+ Meal" else 2, 0))
+        bar2 = ttk.Frame(body)
+        bar2.pack(fill="x")
+        ttk.Label(bar2, text="Click a day or a line in the table to change it here:", foreground="grey").pack(side="left")
+        for text, command in (("Remove", self.remove), ("Move down", lambda: self.move(1)), ("Move up", lambda: self.move(-1))):
+            ttk.Button(bar2, text=text, command=command).pack(side="right", padx=2)
+        self.fields = ttk.Frame(body)
+        self.fields.pack(fill="x", pady=4)
+
+        for key, var in self.vars.items():
+            var.trace_add("write", lambda *args, key=key: self.top_changed(key))
+        self.new_quote()
+
+    def refresh(self):
+        pass                                        # nothing to reload when this tab is opened
+
+    # ---------------------------------------------------------- loading a quote into the screen
+
+    def load(self, draft, heading):
+        self.draft = draft
+        self.loading = True                         # stop top_changed() from reacting while we fill the boxes
+        for key, var in self.vars.items():
+            var.set(show(draft.get(key)))
+        self.itemised.set(draft["itemised"])
+        self.loading = False
+        self.old_pax = {"adults": rules.whole(draft["adults"]), "children": rules.whole(draft["children"])}
+        self.heading.config(text=heading)
+        self.message.config(text="")
+        self.fill_tree("day:0")
+        self.changed = False
+
+    def new_quote(self):
+        if self.changed and not messagebox.askyesno("New quote", "Throw away the changes to this quote?", parent=self):
+            return
+        self.load(rules.blank_draft(data.settings()), "New quote")
+
+    def open_quote(self, q, copy=False):
+        if self.changed and not messagebox.askyesno("Open quote", "Throw away the changes to this quote?", parent=self):
+            return
+        draft = rules.draft_from_quote(q)
+        if copy:
+            draft.update(id=None, quoteNumber=None, date=rules.today(), createdBy=None, createdAt=None)
+        self.load(draft, "Copy of " + q["quoteNumber"] if copy else "Editing " + q["quoteNumber"])
+        self.app.tabs.select(self)
+
+    # ---------------------------------------------------------- the table
+
+    def fill_tree(self, select=None):
+        """Draw the whole table again from the draft."""
+        self.tree.delete(*self.tree.get_children())
+        for di, day in enumerate(self.draft["days"]):
+            self.tree.insert("", "end", f"day:{di}", open=True)
+            for li in range(len(day["lines"])):
+                self.tree.insert(f"day:{di}", "end", f"line:{di}:{li}")
+        self.tree.insert("", "end", "hotels", text="Hotels", open=True)
+        for hi in range(len(self.draft["hotels"])):
+            self.tree.insert("hotels", "end", f"hotel:{hi}")
+        for iid in self.all_rows():
+            self.show_row(iid)
+        if select and self.tree.exists(select):
+            self.tree.selection_set(select)
+            self.tree.see(select)
+        self.show_fields()
+        self.show_totals()
+
+    def all_rows(self):
+        for top in self.tree.get_children():
+            yield top
+            yield from self.tree.get_children(top)
+
+    def target(self, iid):
+        """The row id -> (kind, the dict it shows).  'line:0:2' is line 2 of day 0."""
+        parts = iid.split(":")
+        if parts[0] == "day":
+            return "day", self.draft["days"][int(parts[1])]
+        if parts[0] == "line":
+            line = self.draft["days"][int(parts[1])]["lines"][int(parts[2])]
+            return line["type"], line
+        if parts[0] == "hotel":
+            return "hotel", self.draft["hotels"][int(parts[1])]
+        return "hotels", None
+
+    def show_row(self, iid):
+        """Write one row of the table from the draft."""
+        kind, item = self.target(iid)
+        if kind == "day":
+            di = int(iid.split(":")[1])
+            day_total = sum(rules.line_total(l) for l in item["lines"])
+            self.tree.item(iid, text=f"Day {di + 1}  {rules.nice_date(item['date']) or '(enter the date)'}",
+                           values=("", "", "", "", "", rules.fmt(day_total)))
+        elif kind == "hotel":
+            self.tree.item(iid, values=("", item.get("description"), item.get("supplier"), "", "", rules.fmt(rules.num0(item.get("amount")))))
+        elif kind == "hotels":
             pass
-        flash(f"Deleted {v['invoiceNumber']}.", "ok")
-    return redirect(url_for("invoice_page"))
+        elif rules.per_person(item):
+            self.tree.item(iid, values=(item.get("code", ""), rules.line_label(item, self.draft), item.get("supplier"),
+                                        rules.pax_text(item.get("adults"), item.get("children")),
+                                        f"A {show(item.get('adultPrice'))} / C {show(item.get('childPrice'))}",
+                                        rules.fmt(rules.line_total(item))))
+        else:
+            self.tree.item(iid, values=(item.get("code", ""), rules.line_label(item, self.draft), item.get("supplier"),
+                                        show(item.get("qty")), show(item.get("unitPrice")), rules.fmt(rules.line_total(item))))
 
+    def show_totals(self):
+        t = rules.totals(self.draft)
+        rows = [("Tickets", t["tickets"]), ("Transport", t["transport"]), ("Meals", t["meals"]),
+                ("Guides", t["guides"]), ("Hotel", t["hotel"])] + ([("Additional", t["additional"])] if self.draft.get("group") else [])
+        for widget in self.totals.winfo_children():
+            widget.destroy()
+        for i, (name, value) in enumerate(rows):
+            ttk.Label(self.totals, text=name).grid(row=i, column=0, sticky="w")
+            ttk.Label(self.totals, text=rules.fmt(value)).grid(row=i, column=1, sticky="e", padx=(30, 0))
+        self.total.config(text=f"Total  {data.settings().get('currency', 'SGD')} {rules.fmt(t['total'])}")
 
-# ================================================================ SUPPLIER REPORT
+    def selected(self):
+        chosen = self.tree.selection()
+        return chosen[0] if chosen else None
 
-def report_range():
-    month = request.args.get("month") or today()[:7]
-    date_from, date_to = request.args.get("from", ""), request.args.get("to", "")
-    if not (is_valid_date(date_from) and is_valid_date(date_to)):
+    def selected_day(self):
+        """The day of the selected row (or the last day if nothing is selected)."""
+        iid = self.selected() or ""
+        return int(iid.split(":")[1]) if iid.startswith(("day:", "line:")) else len(self.draft["days"]) - 1
+
+    # ---------------------------------------------------------- the boxes under the table
+
+    def show_fields(self):
+        """Show the boxes for the selected row. Typing in them changes the draft straight away."""
+        for widget in self.fields.winfo_children():
+            widget.destroy()
+        iid = self.selected()
+        if not iid:
+            return
+        kind, item = self.target(iid)
+        for col, (label, key, width) in enumerate(FIELDS.get(kind, [])):
+            ttk.Label(self.fields, text=label).grid(row=0, column=col, sticky="w", padx=(0, 8))
+            var = tk.StringVar(value=show(item.get(key)))
+            if key == "meal":
+                ttk.Combobox(self.fields, textvariable=var, values=rules.MEALS, width=width, state="readonly").grid(row=1, column=col, padx=(0, 8))
+            else:
+                ttk.Entry(self.fields, textvariable=var, width=width).grid(row=1, column=col, padx=(0, 8))
+            var.trace_add("write", lambda *args, item=item, key=key, var=var, iid=iid: self.field_changed(iid, item, key, var))
+
+    def field_changed(self, iid, item, key, var):
+        item[key] = var.get()
+        self.show_row(iid)
+        if self.tree.parent(iid):
+            self.show_row(self.tree.parent(iid))   # the day's total
+        self.show_totals()
+        self.edited()
+
+    def top_changed(self, key):
+        """A box at the top (client, date, adults...) changed."""
+        if self.loading:
+            return
+        self.draft[key] = self.vars[key].get()
+        if key in ("adults", "children"):
+            # Lines that had the old number of adults (or children) follow the new number.
+            new = rules.whole(self.draft[key])
+            if new is not None and new >= 0:
+                for day in self.draft["days"]:
+                    for line in day["lines"]:
+                        if rules.per_person(line) and rules.whole(line.get(key)) == self.old_pax[key]:
+                            line[key] = new
+                self.old_pax[key] = new
+                self.fill_tree(self.selected())
+        self.show_totals()
+        self.edited()
+
+    def edited(self):
+        self.draft["itemised"] = self.itemised.get()
+        self.changed = True
+
+    # ---------------------------------------------------------- the buttons under the table
+
+    def fill_codes(self):
+        """The list under the Code box: every ticket, transfer and guide."""
+        p = data.prices()
+        self.code["values"] = ([f"{t['code']}  {t['name']} (ticket)" for t in p["tickets"]]
+                               + [f"{t['code']}  {t['name']} (transport)" for t in p["transport"] if t.get("code")]
+                               + [f"{t['code']}  Guide, {t['name']}" for t in p["guides"]])
+
+    def say(self, text, good=True):
+        self.message.config(text=text, foreground="dark green" if good else "red")
+
+    def add_code(self):
+        typed = self.code.get().split("  ")[0]   # "CT01  City tour (ticket)" -> "CT01"
+        kind, item = rules.find_code(data.prices(), typed)
+        if not item:
+            self.say(f'No ticket, transport or guide has the code "{typed}".', good=False)
+            return
+        if kind == "ticket":
+            level, status = rules.ticket_status(item)
+            if level == "bad":
+                self.say(f"{item['code']}: the price expired on {rules.nice_date(item['validUntil'])}. "
+                         "Update it in the price list first.", good=False)
+                return
+            self.say(f"Added {item['code']} {item['name']}." + (f" ({status})" if level == "warn" else ""))
+        else:
+            self.say(f"Added {item['code']} {item['name']}.")
+        self.push_line(rules.line_from_price_list(item, kind, self.draft))
+        self.code.set("")
+
+    def add_line(self, kind):
+        if kind == "meal":
+            line = {"type": "meal", "meal": "Lunch", "description": "", "supplier": "",
+                    "adults": rules.whole(self.draft["adults"]) or 0, "children": rules.whole(self.draft["children"]) or 0,
+                    "adultPrice": "", "childPrice": ""}
+        else:
+            line = {"type": "transport", "code": "", "description": "", "supplier": "", "qty": 1, "unitPrice": ""}
+        self.push_line(line)
+        self.say("Fill in the new line in the boxes under the table.")
+
+    def push_line(self, line):
+        di = self.selected_day()
+        self.draft["days"][di]["lines"].append(line)
+        self.fill_tree(f"line:{di}:{len(self.draft['days'][di]['lines']) - 1}")
+        self.edited()
+
+    def add_hotel(self):
+        self.draft["hotels"].append({"description": "", "supplier": "", "amount": ""})
+        self.fill_tree(f"hotel:{len(self.draft['hotels']) - 1}")
+        self.edited()
+
+    def add_day(self):
+        days = self.draft["days"]
+        last = days[-1]["date"] if days else ""
+        days.append({"date": rules.add_days(last, 1) if rules.is_date(last) else "", "lines": []})
+        self.fill_tree(f"day:{len(days) - 1}")
+        self.edited()
+
+    def move(self, step):
+        """Move the selected line (or day) up (step -1) or down (step 1)."""
+        iid = self.selected() or ""
+        parts = iid.split(":")
+        if parts[0] == "line":
+            rows, i, prefix = self.draft["days"][int(parts[1])]["lines"], int(parts[2]), f"line:{parts[1]}:"
+        elif parts[0] in ("day", "hotel"):
+            rows, i, prefix = (self.draft["days"] if parts[0] == "day" else self.draft["hotels"]), int(parts[1]), parts[0] + ":"
+        else:
+            return
+        j = i + step
+        if 0 <= j < len(rows):
+            rows[i], rows[j] = rows[j], rows[i]
+            self.fill_tree(prefix + str(j))
+            self.edited()
+
+    def remove(self):
+        iid = self.selected() or ""
+        parts = iid.split(":")
+        if parts[0] == "line":
+            self.draft["days"][int(parts[1])]["lines"].pop(int(parts[2]))
+        elif parts[0] == "hotel":
+            self.draft["hotels"].pop(int(parts[1]))
+        elif parts[0] == "day":
+            day = self.draft["days"][int(parts[1])]
+            if day["lines"] and not messagebox.askyesno("Remove day", "Remove this day and its lines?", parent=self):
+                return
+            self.draft["days"].remove(day)
+            if not self.draft["days"]:
+                self.draft["days"].append({"date": "", "lines": []})
+        else:
+            return
+        self.fill_tree()
+        self.edited()
+
+    # ---------------------------------------------------------- saving
+
+    def save(self, make_pdf=False):
+        d = self.draft
+        errors, warnings = rules.check_quote(d, data.prices())
+        if errors:
+            self.say("Not saved yet. Please fix:\n• " + "\n• ".join(errors), good=False)
+            return
+        if warnings and not messagebox.askyesno("Please check", "\n".join(warnings) + "\n\nSave anyway?", parent=self):
+            return
+        q = rules.build_quote(d, data.settings())
+        everyone, me, now = data.all_quotes(), data.agent(), rules.now_iso()
+        if d["id"]:                                 # an existing quote keeps its number and who made it
+            q.update(id=d["id"], quoteNumber=d["quoteNumber"], createdAt=d.get("createdAt") or now, createdBy=d.get("createdBy") or me)
+        else:
+            q.update(id=rules.new_id(), quoteNumber=rules.next_quote_number(everyone, d["date"], me), createdAt=now, createdBy=me)
+        q.update(updatedAt=now, updatedBy=me)
+        data.keep_quote(q)                          # safe on this Mac first
         try:
-            date_from, date_to = month_range(int(month[:4]), int(month[5:7]))
-        except ValueError:
-            date_from, date_to = month_range(int(today()[:4]), int(today()[5:7]))
-    return month, date_from, date_to
+            renumbered = data.send_quote(q)         # then straight to Supabase if there is internet
+            note = f"Saved as {q['quoteNumber']} and sent." + (f" ({renumbered} was taken.)" if renumbered else "")
+        except data.OnlineError:
+            note = f"Saved as {q['quoteNumber']} on this Mac. It is sent at the next sync."
+        d.update(id=q["id"], quoteNumber=q["quoteNumber"], createdAt=q["createdAt"], createdBy=q["createdBy"])
+        self.heading.config(text="Editing " + q["quoteNumber"])
+        self.changed = False
+        self.say(note)
+        self.app.refresh_status()
+        if make_pdf:
+            save_pdf(self, q)
 
 
-@app.get("/report")
-def report_page():
-    month, date_from, date_to = report_range()
-    supplier = request.args.get("supplier", "")
-    try:
-        rep = rp.build_report(store.all_records("quote"), date_from, date_to)
-    except ValueError as e:
-        flash(str(e), "err")
-        rep = rp.build_report([], today(), today())
-    groups = [g for g in rep["groups"] if not supplier or g["supplier"] == supplier]
-    return render_template("report.html", rep=rep, groups=groups, month=month, date_from=date_from, date_to=date_to,
-                           supplier=supplier, currency=settings().get("currency") or "SGD", amt=lambda c: f"{c / 100:,.2f}",
-                           csv_url=lambda sup: url_for("report_csv") + "?" + urlencode({"from": date_from, "to": date_to, "supplier": sup}),
-                           count=len(store.all_records("quote")))
+def save_pdf(parent, q):
+    """Ask where to save the PDF, save it and open it."""
+    path = filedialog.asksaveasfilename(parent=parent, title="Save the PDF", initialfile=pdf.file_name(q),
+                                        defaultextension=".pdf", filetypes=[("PDF", "*.pdf")])
+    if path:
+        pdf.quote_pdf(q, data.settings(), path)
+        open_file(path)
 
 
-@app.get("/report.csv")
-def report_csv():
-    _, date_from, date_to = report_range()
-    supplier = request.args.get("supplier", "")
-    rep = rp.build_report(store.all_records("quote"), date_from, date_to)
-    lines = [l for l in rep["lines"] if not supplier or l["supplier"] == supplier]
-    slug = "".join(c if c.isalnum() else "-" for c in supplier.lower()).strip("-")
-    name = f"supplier-report_{slug + '_' if slug else ''}{date_from}_to_{date_to}.csv"
-    return Response(rp.to_csv(lines), mimetype="text/csv; charset=utf-8",
-                    headers={"Content-Disposition": f'attachment; filename="{name}"'})
+# =============================================================== Saved quotes
+
+class SavedTab(ttk.Frame):
+    def __init__(self, parent, app):
+        super().__init__(parent)
+        self.app = app
+        bar = ttk.Frame(self)
+        bar.pack(fill="x", pady=(0, 8))
+        ttk.Label(bar, text="Search").pack(side="left")
+        self.search = tk.StringVar()
+        self.search.trace_add("write", lambda *args: self.refresh())
+        ttk.Entry(bar, textvariable=self.search, width=30).pack(side="left", padx=4)
+        for text, command in (("Delete", self.delete), ("PDF", self.make_pdf),
+                              ("Copy as new", lambda: self.open(copy=True)), ("Open", self.open)):
+            ttk.Button(bar, text=text, command=command).pack(side="right", padx=2)
+        table, self.tree = make_table(self, [("date", "Date", 100), ("number", "Number", 190), ("client", "Client", 220),
+                                             ("travel", "Travel", 200), ("agent", "Agent", 70), ("total", "Total", 110),
+                                             ("sent", "", 80)], 25)
+        self.tree.column("#0", width=0, stretch=False)
+        table.pack(fill="both", expand=True)
+        self.tree.bind("<Double-1>", lambda e: self.open())
+
+    def refresh(self):
+        self.tree.delete(*self.tree.get_children())
+        self.quotes = {}
+        unsent, words = data.unsent_ids(), self.search.get().lower().split()
+        for q in data.all_quotes():
+            dates = sorted(d["date"] for d in rules.days_of(q) if rules.is_date(d.get("date") or ""))
+            travel = (rules.nice_date(dates[0]) + (" to " + rules.nice_date(dates[-1]) if len(dates) > 1 else "")) if dates else ""
+            row = (q.get("date"), q.get("quoteNumber"), q.get("clientName"), travel, q.get("createdBy", ""),
+                   f"{q.get('currency', '')} {rules.fmt(q.get('total', 0))}", "Not sent" if q["id"] in unsent else "")
+            if all(w in " ".join(map(str, row)).lower() for w in words):
+                self.tree.insert("", "end", q["id"], values=row)
+                self.quotes[q["id"]] = q
+
+    def chosen(self):
+        iid = self.tree.selection()
+        if not iid:
+            messagebox.showinfo("Saved quotes", "Click a quote in the list first.", parent=self)
+            return None
+        return self.quotes[iid[0]]
+
+    def open(self, copy=False):
+        q = self.chosen()
+        if q:
+            self.app.quote_tab.open_quote(q, copy)
+
+    def make_pdf(self):
+        q = self.chosen()
+        if q:
+            save_pdf(self, q)
+
+    def delete(self):
+        q = self.chosen()
+        if q and messagebox.askyesno("Delete", f"Delete {q['quoteNumber']} ({q['clientName']})? "
+                                     "It is deleted for everyone at the next sync.", parent=self):
+            data.delete_quote(q["id"])
+            self.refresh()
+            self.app.refresh_status()
 
 
-# ================================================================ SETTINGS
+# =============================================================== Price list
 
-@app.get("/settings")
-def settings_page():
-    return render_template("settings.html", s=settings(), login=sync.current_login(), data_file=str(store.db_path()))
-
-
-@app.post("/settings")
-def settings_save():
-    service = to_number(request.form.get("defaultServiceCharge"))
-    if service is None or service < 0:
-        flash("Profit must be 0 or more.", "err")
-        return redirect(url_for("settings_page"))
-    new = {**settings(), "businessName": request.form.get("businessName", "").strip(),
-           "businessDetails": request.form.get("businessDetails", "").strip(),
-           "currency": request.form.get("currency", "").strip(), "defaultServiceCharge": round2(service),
-           "profitDisplay": request.form.get("profitDisplay", "service"), "footer": request.form.get("footer", "").strip()}
-    try:
-        api.save_settings(sync.fresh_token(), new)
-        store.put("settings", new)
-        flash("Settings saved.", "ok")
-    except api.SupabaseError as e:
-        flash(("You are offline. Settings need internet. " if e.offline else "") + f"Not saved: {e}", "err")
-    return redirect(url_for("settings_page"))
+PRICE_KINDS = {  # kind -> (tab name, [(box label, key, width)], key in the price list)
+    "ticket": ("Tickets", [("Code", "code", 8), ("Name", "name", 28), ("Supplier", "supplier", 20),
+                           ("Adult price", "adultPrice", 9), ("Child price (empty = adult)", "childPrice", 9),
+                           ("Valid until (YYYY-MM-DD)", "validUntil", 12)], "tickets"),
+    "transport": ("Transport", [("Code", "code", 8), ("Name", "name", 34), ("Supplier", "supplier", 20),
+                                ("Price", "price", 9)], "transport"),
+    "guide": ("Guides", [("Code", "code", 8), ("Place or attraction", "name", 34), ("Supplier", "supplier", 20),
+                         ("Price", "price", 9)], "guides"),
+}
 
 
-@app.post("/settings/password")
-def password_change():
-    a, b = request.form.get("new", ""), request.form.get("again", "")
-    if len(a) < 8:
-        flash("Use at least 8 characters.", "err")
-    elif a != b:
-        flash("The two passwords are different.", "err")
-    else:
-        try:
-            sync.fresh_token()
-            api.change_password(sync.current_login(), a)
-            flash("Password changed. Use the new one next time you log in.", "ok")
-        except api.SupabaseError as e:
-            flash(f"Not changed: {e}", "err")
-    return redirect(url_for("settings_page"))
+class PricesTab(ttk.Frame):
+    def __init__(self, parent, app):
+        super().__init__(parent)
+        ttk.Label(self, text="Changes here need internet: they go straight to the online database, "
+                             "so every Mac and the website have the same prices.", foreground="grey").pack(anchor="w")
+        inner = ttk.Notebook(self)
+        inner.pack(fill="both", expand=True, pady=6)
+        self.lists = [PriceList(inner, app, kind) for kind in PRICE_KINDS]
+        for part in self.lists:
+            inner.add(part, text=PRICE_KINDS[part.kind][0], padding=8)
+
+    def refresh(self):
+        for part in self.lists:
+            part.refresh()
 
 
-@app.get("/backup.json")
-def backup():
-    data = {"app": "quote-calculator", "version": 1, "exportedAt": now_iso(), "settings": settings(),
-            "prices": price_list(), "quotes": store.all_records("quote"), "invoices": store.all_records("invoice")}
-    return Response(json.dumps(data, indent=2), mimetype="application/json",
-                    headers={"Content-Disposition": f'attachment; filename="quote-calculator-backup-{today()}.json"'})
+class PriceList(ttk.Frame):
+    """One list (tickets, transport or guides) with its form."""
+
+    def __init__(self, parent, app, kind):
+        super().__init__(parent)
+        self.app, self.kind = app, kind
+        name, self.fields, self.list_key = PRICE_KINDS[kind]
+        self.editing = None                         # the item being changed, None when adding a new one
+
+        form = ttk.Frame(self)
+        form.pack(fill="x")
+        self.vars = {}
+        for col, (label, key, width) in enumerate(self.fields):
+            ttk.Label(form, text=label).grid(row=0, column=col, sticky="w", padx=(0, 8))
+            self.vars[key] = tk.StringVar()
+            ttk.Entry(form, textvariable=self.vars[key], width=width).grid(row=1, column=col, padx=(0, 8), sticky="w")
+        bar = ttk.Frame(self)
+        bar.pack(fill="x", pady=6)
+        self.save_button = ttk.Button(bar, text="Add", command=self.save)
+        self.save_button.pack(side="left")
+        ttk.Button(bar, text="Clear (add a new one)", command=self.clear).pack(side="left", padx=4)
+        ttk.Button(bar, text="Delete", command=self.delete).pack(side="left", padx=4)
+        if kind == "ticket":
+            ttk.Button(bar, text="✓ Confirm all valid prices this month", command=self.confirm_all).pack(side="right")
+        columns = [(key, label.split(" (")[0], 110 if key not in ("name",) else 280) for label, key, width in self.fields]
+        if kind == "ticket":
+            columns.append(("status", "Status", 170))
+        table, self.tree = make_table(self, columns, 18)
+        self.tree.column("#0", width=0, stretch=False)
+        table.pack(fill="both", expand=True)
+        self.tree.bind("<<TreeviewSelect>>", lambda e: self.pick())
+
+    def items(self):
+        return data.prices()[self.list_key]
+
+    def refresh(self):
+        self.tree.delete(*self.tree.get_children())
+        for i, t in enumerate(self.items()):
+            if self.kind == "ticket":
+                row = [t["code"], t["name"], t["supplier"], rules.fmt(rules.adult_price(t)), rules.fmt(rules.child_price(t)),
+                       t["validUntil"], rules.ticket_status(t)[1]]
+            else:
+                row = [t.get("code") or "(add a code)", t["name"], t["supplier"], rules.fmt(t["price"])]
+            self.tree.insert("", "end", str(i), values=row)
+
+    def pick(self):
+        """A row was clicked: put it in the form to change it."""
+        chosen = self.tree.selection()
+        if not chosen:
+            return
+        self.editing = self.items()[int(chosen[0])]
+        for key, var in self.vars.items():
+            value = self.editing.get(key)
+            var.set(show(rules.child_price(self.editing)) if key == "childPrice" else show(value))
+        self.save_button.config(text="Save changes")
+
+    def clear(self):
+        self.editing = None
+        for var in self.vars.values():
+            var.set("")
+        self.tree.selection_remove(self.tree.selection())
+        self.save_button.config(text="Add")
+
+    def save(self):
+        form = {key: var.get() for key, var in self.vars.items()}
+        item, error = rules.check_price_item(data.prices(), self.kind, form, self.editing)
+        if error:
+            messagebox.showerror("Price list", error, parent=self)
+            return
+        old_key = self.editing["code"] if self.editing and self.kind == "ticket" else None
+        if self.app.online(lambda: data.save_price_item(self.kind, item, old_key)):
+            self.clear()
+            self.refresh()
+
+    def delete(self):
+        if self.editing and messagebox.askyesno("Delete", f"Delete {self.editing.get('code')} {self.editing['name']}? "
+                                                "Saved quotes keep their own copy.", parent=self):
+            if self.app.online(lambda: data.delete_price_item(self.kind, self.editing)):
+                self.clear()
+                self.refresh()
+
+    def confirm_all(self):
+        """Mark every ticket that hasn't expired as checked this month."""
+        def work():
+            for t in self.items():
+                if rules.ticket_status(t)[0] != "bad":
+                    data.save_price_item("ticket", dict(t, confirmedAt=rules.today()), refresh=False)
+            data.download_prices()
+        if self.app.online(work):
+            self.refresh()
 
 
-@app.post("/restore")
-def restore():
-    """Add a backup file: new quotes/invoices are added, and ones already here are replaced only
-    by a newer copy. Nothing is deleted. They are sent to Supabase at the next sync."""
-    try:
-        d = json.load(request.files["file"].stream)
-        assert isinstance(d.get("quotes"), list)
-    except Exception:
-        flash("That is not a quote calculator backup file.", "err")
-        return redirect(url_for("settings_page"))
-    added = updated = 0
-    renumbered = []
-    for kind, key, number_field, next_number in (
-            ("quote", "quotes", "quoteNumber", qt.next_quote_number),
-            ("invoice", "invoices", "invoiceNumber", inv.next_invoice_number)):
-        for rec in d.get(key) or []:
-            if not isinstance(rec, dict) or not is_valid_date(rec.get("date") or ""):
-                continue
-            rec.setdefault("id", new_id())
-            here = store.get_record(kind, rec["id"])
-            if here:
-                if str(rec.get("updatedAt", "")) > str(here.get("updatedAt", "")):
-                    rec[number_field] = here[number_field]
-                    store.save_record(kind, rec)
-                    updated += 1
-                continue
-            everyone = store.all_records(kind)
-            if not rec.get(number_field) or any(x.get(number_field) == rec[number_field] for x in everyone):
-                old = rec.get(number_field)
-                rec[number_field] = next_number(everyone, rec["date"], agent())
-                if old:
-                    renumbered.append(f"{old} → {rec[number_field]}")
-            store.save_record(kind, rec)
-            added += 1
-    text = f"Added {added} and updated {updated} quote(s)/invoice(s). Click Sync now to send them."
-    if renumbered:
-        text += " Numbers already in use were changed: " + ", ".join(renumbered) + "."
-    flash(text, "ok")
-    return redirect(url_for("settings_page"))
+# =============================================================== Supplier report
 
+class ReportTab(ttk.Frame):
+    def __init__(self, parent, app):
+        super().__init__(parent)
+        bar = ttk.Frame(self)
+        bar.pack(fill="x")
+        first, last = rules.month_range(rules.today())
+        self.date_from, self.date_to = tk.StringVar(value=first), tk.StringVar(value=last)
+        ttk.Label(bar, text="Travel dates from").pack(side="left")
+        ttk.Entry(bar, textvariable=self.date_from, width=11).pack(side="left", padx=4)
+        ttk.Label(bar, text="to").pack(side="left")
+        ttk.Entry(bar, textvariable=self.date_to, width=11).pack(side="left", padx=4)
+        ttk.Button(bar, text="Show", command=self.refresh).pack(side="left", padx=4)
+        ttk.Button(bar, text="Save as CSV (Excel)", command=self.save_csv).pack(side="right")
+        self.summary = ttk.Label(self, foreground="grey")
+        self.summary.pack(anchor="w", pady=6)
+        table, self.tree = make_table(self, [("date", "Travel date", 110), ("type", "Type", 80), ("quote", "Quote", 180),
+                                             ("client", "Client", 160), ("item", "Item", 300), ("qty", "Qty", 50),
+                                             ("total", "Total", 100)], 25)
+        self.tree.heading("#0", text="Supplier")
+        self.tree.column("#0", width=200)
+        table.pack(fill="both", expand=True)
+        self.lines = []
 
-@app.post("/settings/sample")
-def sample_prices():
-    new = pl.sample_price_list(price_list())
+    def refresh(self):
+        self.tree.delete(*self.tree.get_children())
+        a, b = self.date_from.get().strip(), self.date_to.get().strip()
+        if not (rules.is_date(a) and rules.is_date(b)) or a > b:
+            self.summary.config(text="Enter two dates like 2026-12-01, the first one before the second.")
+            return
+        self.lines = rules.report_lines(data.all_quotes(), a, b)
+        sums = rules.report_by_supplier(self.lines)
+        for supplier, cents in sums.items():
+            self.tree.insert("", "end", supplier, text=supplier, open=True, values=("", "", "", "", "", "", rules.fmt(cents / 100)))
+        for r in self.lines:
+            self.tree.insert(r["supplier"], "end", values=(r["travelDate"], r["type"], r["quoteNumber"], r["client"],
+                                                           r["item"], r["qty"], rules.fmt(r["cents"] / 100)))
+        quotes = len({r["quoteNumber"] for r in self.lines})
+        self.summary.config(text=f"{len(self.lines)} lines from {quotes} quote(s), {len(sums)} supplier(s). "
+                                 f"Total owed to suppliers: {rules.fmt(sum(sums.values()) / 100)}. "
+                                 "Sync first to include everyone's latest quotes.")
 
-    def write(token):
-        api.upsert(token, "tickets", [api.ticket_to_row(t) for t in new["tickets"]], "code")
-        api.upsert(token, "transport_items", [api.item_to_row(t) for t in new["transport"]], "id")
-        api.upsert(token, "guide_items", [api.item_to_row(t) for t in new["guides"]], "id")
-    online(write, "Sample price list added. Have a look in the Price list.")
-    return redirect(url_for("settings_page"))
-
-
-# ================================================================ start
-
-def already_running():
-    """True if the app is already open (something is using our port)."""
-    import socket
-    with socket.socket() as s:
-        return s.connect_ex((config.HOST, config.PORT)) == 0
+    def save_csv(self):
+        self.refresh()
+        path = filedialog.asksaveasfilename(parent=self, title="Save the report", defaultextension=".csv",
+                                            initialfile=f"supplier-report_{self.date_from.get()}_to_{self.date_to.get()}.csv")
+        if path:
+            rules.write_csv(self.lines, path)
+            open_file(path)
 
 
 if __name__ == "__main__":
-    url = f"http://{config.HOST}:{config.PORT}/"
-    if already_running():
-        print("The app is already running. Opening it in the browser.")
-        webbrowser.open(url)
-        raise SystemExit
-    print(f"Quote Calculator is running at {url}  (keep this window open; close it to stop the app)")
-    threading.Timer(1.0, lambda: webbrowser.open(url)).start()
-    app.run(host=config.HOST, port=config.PORT, debug=False)
+    App().mainloop()

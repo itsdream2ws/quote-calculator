@@ -1,7 +1,4 @@
 # The Python libraries the app needs. "Start Quote Calculator.command" installs them for you.
-Flask>=3.0,<4        # the web pages
 requests>=2.31,<3    # talking to Supabase over the internet
-fpdf2>=2.8,<3        # drawing the PDFs
-pypdfium2>=4.30,<6   # turning a PDF into a PNG picture
-Pillow>=10           # pictures (the logo)
+fpdf2>=2.8,<3        # drawing the PDF
 tzdata               # time zones ("today" in Singapore)
